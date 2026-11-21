@@ -1,0 +1,274 @@
+/* =====================================================================
+   Aveia — sistema de movimento (motion.css)
+   Um único lugar para ajustar a "velocidade" e as curvas do app.
+   Parceiro: static/motion.js (FLIP, ripple, contagem etc.).
+
+   Regras do sistema
+   - Só `transform`/`scale`/`translate`/`rotate` e `opacity` em animações contínuas.
+     (As propriedades individuais `scale`/`translate` convivem com o `transform` do Tailwind.)
+   - Nada de animação infinita em repouso: só gravação e carregamento.
+   - Ajuste global: --mo-t (1 = padrão, .5 = 2x mais rápido, 1.5 = mais calmo).
+   - Desativar: remova os 2 includes do index.html, ou `localStorage.setItem('aveia.motion','off')`,
+     ou abra com ?motion=off. `prefers-reduced-motion: reduce` já reduz tudo a fades curtos.
+   ===================================================================== */
+
+:root {
+    --mo-t: 1;
+    --mo-fast: calc(120ms * var(--mo-t));
+    --mo-base: calc(200ms * var(--mo-t));
+    --mo-slow: calc(320ms * var(--mo-t));
+    --mo-reveal: calc(480ms * var(--mo-t));
+    --mo-fade: var(--mo-base);                       /* fades de opacidade (sobrevivem ao reduced-motion) */
+
+    --mo-ease-out: cubic-bezier(.2, .8, .2, 1);      /* entradas, deslizes */
+    --mo-ease-pop: cubic-bezier(.34, 1.56, .64, 1);  /* press / pop com leve overshoot */
+    --mo-ease-in: cubic-bezier(.4, 0, 1, 1);         /* saídas curtas */
+    --mo-ease-inout: cubic-bezier(.65, 0, .35, 1);
+
+    --mo-amendoa: 177 138 101;
+    --mo-framboesa: 175 39 47;
+    --mo-mirtilo: 38 47 58;
+}
+
+/* ---------- Redução de movimento (sistema operacional ou kill switch) ---------- */
+@media (prefers-reduced-motion: reduce) {
+    :root { --mo-t: .001; --mo-fade: 100ms; }
+    html { scroll-behavior: auto !important; }
+    .spin, [class*="animate-spin"] { animation: mo-blink 1.4s ease-in-out infinite !important; }
+    #resumo-corpo .animate-pulse::after { animation: none !important; display: none; }
+    #rec-btn[data-mo="gravando"]::after { animation: none !important; }
+    #rec-btn[data-mo="pausado"] #rec-label { animation: none !important; }
+}
+:root.mo-off { --mo-t: .001; --mo-fade: 100ms; }
+:root.mo-off .spin, :root.mo-off [class*="animate-spin"] { animation: mo-blink 1.4s ease-in-out infinite !important; }
+:root.mo-off #resumo-corpo .animate-pulse::after { animation: none !important; display: none; }
+:root.mo-off #rec-btn[data-mo="gravando"]::after { animation: none !important; }
+:root.mo-off #rec-btn[data-mo="pausado"] #rec-label { animation: none !important; }
+
+/* Sem transições na carga inicial (evita o menu/padding "deslizando" ao abrir a página) */
+html:not(.mo-ready) *, html:not(.mo-ready) *::before, html:not(.mo-ready) *::after { transition: none !important; }
+
+html { scroll-behavior: smooth; }
+
+/* ---------- Keyframes ---------- */
+@keyframes mo-rise      { from { opacity: 0; translate: 0 12px; } }
+@keyframes mo-rise-sm   { from { opacity: 0; translate: 0 8px; } }
+@keyframes mo-fade-in   { from { opacity: 0; } }
+@keyframes mo-dock-in   { from { opacity: 0; translate: 0 24px; scale: .96; } }
+@keyframes mo-pop       { 0% { scale: .6; opacity: 0; } 60% { scale: 1.12; opacity: 1; } 100% { scale: 1; } }
+@keyframes mo-line      { from { scale: .15 1; opacity: 0; } }
+@keyframes mo-shimmer   { to { translate: 100% 0; } }
+@keyframes mo-blink     { 50% { opacity: .45; } }
+@keyframes mo-ring-pulse { 0% { opacity: .5; scale: 1; } 100% { opacity: 0; scale: 1.55 1.85; } }
+@keyframes mo-draw      { to { stroke-dashoffset: 0; } }
+@keyframes mo-tick      { from { clip-path: inset(0 100% 100% 0); } to { clip-path: inset(0); } }
+@keyframes mo-boxpop    { 40% { scale: 1.25; } }
+@keyframes mo-focus     { from { outline-color: rgb(var(--mo-amendoa) / 0); outline-offset: 6px; } }
+
+/* ---------- Entrada de página e cartões ---------- */
+header { animation: mo-fade-in var(--mo-slow) var(--mo-ease-out) backwards; }
+.cartao { animation: mo-rise var(--mo-reveal) var(--mo-ease-out) backwards; }
+#resumo { animation-delay: calc(60ms * var(--mo-t)); }
+#transcript { animation-delay: calc(120ms * var(--mo-t)); }
+footer > div { animation: mo-dock-in var(--mo-reveal) var(--mo-ease-pop) calc(120ms * var(--mo-t)) backwards; }
+footer { contain: layout style; }
+
+/* ---------- Foco visível: anel que "abre" ---------- */
+html :is(button, a[href], select, input, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 2px solid rgb(var(--mo-amendoa) / .7);
+    outline-offset: 2px;
+    animation: mo-focus var(--mo-base) var(--mo-ease-out);
+}
+
+/* ---------- Botões: realce, pressão (scale) e ripple ---------- */
+button:not(.mo-x), [role="button"]:not(.mo-x) {
+    transition: scale var(--mo-base) var(--mo-ease-pop), translate var(--mo-fast) var(--mo-ease-out),
+                background-color var(--mo-fast) var(--mo-ease-out), color var(--mo-fast) var(--mo-ease-out),
+                opacity var(--mo-base) var(--mo-ease-out), filter var(--mo-fast) var(--mo-ease-out),
+                box-shadow var(--mo-base) var(--mo-ease-out), border-color var(--mo-fast) var(--mo-ease-out);
+}
+button:not(:disabled):not(.mo-x):active, [role="button"]:not(.mo-x):active {
+    scale: .96; transition-duration: calc(70ms * var(--mo-t)); transition-timing-function: ease-out;
+}
+button:has(> i:only-child):not(:disabled):not(.mo-x):active { scale: .88; }
+@media (hover: hover) {
+    button:has(> i:only-child):not(:disabled):not(.mo-x):hover { scale: 1.09; }
+    button:has(> i:only-child):not(:disabled):not(.mo-x):active { scale: .88; }
+    #rec-btn:hover, #magic-btn:hover:not(:disabled) { translate: 0 -1px; box-shadow: 0 8px 16px -8px rgb(0 0 0 / .55); }
+    #rec-btn:active, #magic-btn:active { translate: 0 0; }
+}
+/* O Tailwind já tinha active:scale-95 nesses três; o scale acima assume. */
+#rec-btn:active, #magic-btn:active, #pause-btn:active { transform: none !important; }
+#magic-btn:disabled { opacity: .75; cursor: progress; }
+
+.mo-rip-host { position: relative; overflow: hidden; isolation: isolate; }
+.mo-rip { position: absolute; z-index: -1; border-radius: 50%; pointer-events: none; background: currentColor;
+          opacity: .0; translate: -50% -50%; }
+
+/* ---------- Menu lateral ---------- */
+#menu {
+    transition: transform var(--mo-slow) var(--mo-ease-out), opacity var(--mo-fade) var(--mo-ease-out), visibility 0s;
+}
+#menu.pointer-events-none {
+    visibility: hidden;
+    transition: transform var(--mo-base) var(--mo-ease-in), opacity var(--mo-fade) var(--mo-ease-in), visibility 0s linear var(--mo-fade);
+}
+#menu > * { transition: opacity var(--mo-base) var(--mo-ease-out) calc(90ms * var(--mo-t)), translate var(--mo-slow) var(--mo-ease-out) calc(60ms * var(--mo-t)); }
+#menu.pointer-events-none > * { opacity: 0; translate: -10px 0; transition-delay: 0s; }
+
+/* Aba na borda: sempre com 2rem, escondida 0,5rem para a esquerda; no hover desliza para fora */
+#menu-aba {
+    width: 2rem; padding-left: .5rem; translate: -.5rem 0;
+    transition: translate var(--mo-base) var(--mo-ease-out), opacity var(--mo-fade) ease, visibility 0s, scale var(--mo-base) var(--mo-ease-pop), background-color var(--mo-fast), color var(--mo-fast);
+}
+#menu-aba:hover { translate: 0 0; scale: 1; }
+#menu-aba.hidden {
+    display: flex !important; translate: -100% 0; opacity: 0; visibility: hidden; pointer-events: none;
+    transition: translate var(--mo-base) var(--mo-ease-in), opacity var(--mo-fade) ease, visibility 0s linear var(--mo-fade);
+}
+/* Fundo do menu no mobile */
+#menu-fundo { display: block; opacity: 1; transition: opacity var(--mo-fade) ease, visibility 0s; }
+#menu-fundo.hidden { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--mo-fade) ease, visibility 0s linear var(--mo-fade); }
+@media (min-width: 1024px) {
+    #menu-fundo, #menu-fundo.hidden { display: none; }
+    body, footer { transition: padding-left var(--mo-slow) var(--mo-ease-out); }
+}
+
+#menu-lista { position: relative; overscroll-behavior: contain; scroll-behavior: smooth; }
+#menu-lista > #mo-pill + div { margin-top: 0; }
+#menu-lista > div > div {
+    position: relative; z-index: 1;
+    transition: scale var(--mo-base) var(--mo-ease-pop), translate var(--mo-fast) var(--mo-ease-out),
+                background-color var(--mo-fast) var(--mo-ease-out), box-shadow var(--mo-base) var(--mo-ease-out),
+                opacity var(--mo-fast) ease, color var(--mo-fast) ease;
+}
+#menu-lista > div > div:active { scale: .985; transition-duration: calc(70ms * var(--mo-t)); }
+@media (hover: hover) { #menu-lista > div > div:not(:first-child)[draggable]:hover { translate: 2px 0; } }
+#menu-lista [draggable].opacity-40 { scale: .97; }
+
+/* Realce do item ativo: uma "pílula" que desliza entre as notas */
+#mo-pill { position: absolute; left: 0; top: 0; border-radius: .75rem; background: rgb(var(--mo-amendoa) / .15);
+           pointer-events: none; z-index: 0; opacity: 0; transition: opacity var(--mo-fade) ease; }
+#mo-pill.on { opacity: 1; }
+#menu-lista.mo-pill-on > div > div[class*="bg-amendoa/15"] { background-color: transparent; }
+
+/* Itens que saem da lista (fantasmas), arrastar e "vaga" de soltar */
+.mo-ghost { pointer-events: none; z-index: 2; }
+.mo-drag-ghost { position: fixed; left: -9999px; top: 0; padding: .375rem .75rem; display: flex; align-items: center; gap: .5rem;
+                 background: #fff; border-radius: .75rem; font-size: .875rem; color: #262F3A;
+                 box-shadow: 0 12px 28px rgb(38 47 58 / .22), 0 0 0 1px rgb(177 138 101 / .25); transform: rotate(-2deg); }
+#menu-lista .drop-antes, #menu-lista .drop-depois { box-shadow: none; }
+#menu-lista .drop-antes::before, #menu-lista .drop-depois::before {
+    content: ""; position: absolute; left: .5rem; right: .5rem; height: 2px; border-radius: 2px; pointer-events: none;
+    background: rgb(var(--mo-amendoa)); box-shadow: 0 0 0 3px rgb(var(--mo-amendoa) / .18);
+    transform-origin: left center; animation: mo-line var(--mo-base) var(--mo-ease-out) both;
+}
+#menu-lista .drop-antes::before { top: -2px; }
+#menu-lista .drop-depois::before { bottom: -2px; }
+#menu-lista .drop-dentro { scale: 1.02; box-shadow: inset 0 0 0 1.5px rgb(var(--mo-amendoa) / .55); }
+
+/* ---------- Ajustes (popover): escala + fade, com conteúdo em cascata ---------- */
+#ajustes {
+    animation: none; transform-origin: top right;
+    transition: opacity var(--mo-fade) var(--mo-ease-out), scale var(--mo-base) var(--mo-ease-out), translate var(--mo-base) var(--mo-ease-out), visibility 0s;
+}
+#ajustes.hidden {
+    display: block !important; opacity: 0; scale: .96; translate: 0 -6px; visibility: hidden; pointer-events: none;
+    transition: opacity var(--mo-fade) var(--mo-ease-in), scale var(--mo-fast) var(--mo-ease-in), translate var(--mo-fast) var(--mo-ease-in), visibility 0s linear var(--mo-fade);
+}
+#ajustes > * { transition: opacity var(--mo-base) var(--mo-ease-out), translate var(--mo-base) var(--mo-ease-out); }
+#ajustes > :nth-child(1) { transition-delay: calc(30ms * var(--mo-t)); }
+#ajustes > :nth-child(2) { transition-delay: calc(60ms * var(--mo-t)); }
+#ajustes > :nth-child(3) { transition-delay: calc(90ms * var(--mo-t)); }
+#ajustes > :nth-child(n+4) { transition-delay: calc(120ms * var(--mo-t)); }
+#ajustes.hidden > * { opacity: 0; translate: 0 -4px; transition-delay: 0s; }
+#ajustes :is(select, input) {
+    transition: border-color var(--mo-fast) var(--mo-ease-out), box-shadow var(--mo-base) var(--mo-ease-out), background-color var(--mo-fast) var(--mo-ease-out);
+}
+#ajustes :is(select, input):hover { background-color: rgb(238 236 235 / 1); }
+#ajustes :is(select, input):focus { box-shadow: 0 0 0 3px rgb(var(--mo-amendoa) / .16); }
+#ajustes :is(select, input):focus-visible { outline: none; animation: none; }
+
+/* ---------- Toast ---------- */
+#toast {
+    translate: 0 0; scale: 1;
+    transition: opacity var(--mo-fade) var(--mo-ease-out), translate var(--mo-slow) var(--mo-ease-pop), scale var(--mo-slow) var(--mo-ease-pop);
+}
+#toast.opacity-0 {
+    translate: 0 -14px; scale: .94;
+    transition: opacity var(--mo-fade) var(--mo-ease-in), translate var(--mo-base) var(--mo-ease-in), scale var(--mo-base) var(--mo-ease-in);
+}
+.mo-ck { width: 1rem; height: 1rem; flex-shrink: 0; fill: none; stroke: rgb(var(--mo-amendoa)); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mo-ck-c { stroke-dasharray: 44; stroke-dashoffset: 44; animation: mo-draw var(--mo-slow) var(--mo-ease-out) forwards; }
+.mo-ck-t { stroke-dasharray: 14; stroke-dashoffset: 14; animation: mo-draw var(--mo-base) var(--mo-ease-out) calc(190ms * var(--mo-t)) forwards; }
+
+/* ---------- Avisos de recuperação ---------- */
+#pendentes > div { animation: mo-rise-sm var(--mo-slow) var(--mo-ease-out) backwards; }
+
+/* ---------- Editor Markdown ---------- */
+#note-view:not(.hidden), #note-edit:not(.hidden) { animation: mo-fade-in var(--mo-base) ease-out; }
+#md-dica:not(.hidden) { animation: mo-rise-sm var(--mo-base) var(--mo-ease-out); }
+#note-title { transition: opacity var(--mo-base) ease; }
+
+/* Caixas de tarefa: o "feito" desenha o traço */
+.md li.md-tarefa input {
+    appearance: none; -webkit-appearance: none; width: 1.1rem; height: 1.1rem; margin-top: .45rem; flex-shrink: 0; cursor: pointer;
+    border: 1.5px solid rgb(var(--mo-amendoa) / .75); border-radius: .35rem; background: transparent;
+    display: grid; place-content: center;
+    transition: background-color var(--mo-fast) var(--mo-ease-out), border-color var(--mo-fast) var(--mo-ease-out), scale var(--mo-base) var(--mo-ease-pop);
+}
+.md li.md-tarefa input::after {
+    content: ""; width: .32rem; height: .6rem; border: solid #EEECEB; border-width: 0 2px 2px 0;
+    rotate: 45deg; translate: 0 -1px; scale: 0; transition: scale var(--mo-fast) var(--mo-ease-pop);
+}
+.md li.md-tarefa input:checked { background: rgb(var(--mo-amendoa)); border-color: rgb(var(--mo-amendoa)); }
+.md li.md-tarefa input:checked::after { scale: 1; }
+@media (hover: hover) { .md li.md-tarefa input:hover { scale: 1.12; } }
+.md li.md-tarefa input:active { scale: .88; }
+.md li.md-tarefa input.mo-just { animation: mo-boxpop var(--mo-slow) var(--mo-ease-pop); }
+.md li.md-tarefa input.mo-just:checked::after { animation: mo-tick var(--mo-base) var(--mo-ease-out) backwards; }
+.md-feito { transition: opacity var(--mo-base) ease; }
+.md a { transition: color var(--mo-fast) ease, text-underline-offset var(--mo-fast) var(--mo-ease-out); }
+.md a:hover { text-underline-offset: 4px; }
+
+/* ---------- Resumo: skeleton, revelação em cascata ---------- */
+#resumo-corpo .animate-pulse { animation: none; position: relative; overflow: hidden; background: rgb(var(--mo-amendoa) / .13); }
+#resumo-corpo .animate-pulse::after {
+    content: ""; position: absolute; inset: 0; translate: -100% 0; pointer-events: none;
+    background: linear-gradient(100deg, transparent 15%, rgb(255 255 255 / .7) 50%, transparent 85%);
+    animation: mo-shimmer 1.6s ease-in-out infinite; animation-delay: var(--mo-d, 0s);
+}
+.mo-in { animation: mo-rise-sm var(--mo-reveal) var(--mo-ease-out) backwards; animation-delay: calc(var(--i, 0) * 55ms * var(--mo-t)); }
+#resumo-corpo button.w-full { transition: background-color var(--mo-fast) var(--mo-ease-out), translate var(--mo-base) var(--mo-ease-out), scale var(--mo-base) var(--mo-ease-pop); }
+@media (hover: hover) { #resumo-corpo button.w-full:hover { translate: 3px 0; } }
+#resumo-corpo button.w-full:active { scale: .985; }
+
+/* ---------- Transcrição ---------- */
+#turns [contenteditable] { border-radius: .375rem; padding: 0 .25rem; margin-left: -.25rem; transition: background-color var(--mo-fast) var(--mo-ease-out); }
+#turns [contenteditable]:hover { background: rgb(var(--mo-amendoa) / .12); }
+#turns [contenteditable]:focus { background: rgb(var(--mo-amendoa) / .2); outline: none; }
+#turns > div { transform-origin: left center; }
+
+/* ---------- Dock: gravação ---------- */
+#rec-btn { position: relative; isolation: isolate; }
+#rec-btn::before, #rec-btn::after { content: ""; position: absolute; border-radius: inherit; pointer-events: none; z-index: -1; opacity: 0; }
+#rec-btn::before { inset: -3px; border: 2px solid rgb(var(--mo-framboesa)); scale: calc(1 + var(--mo-lvl, 0) * .3);
+                   transition: scale 90ms linear, opacity var(--mo-base) ease; }
+#rec-btn::after { inset: 0; background: rgb(var(--mo-framboesa) / .5); }
+#rec-btn[data-mo="gravando"]::before { opacity: calc(.3 + var(--mo-lvl, 0) * .7); }
+#rec-btn[data-mo="gravando"]::after { animation: mo-ring-pulse 1.9s cubic-bezier(.2, .6, .3, 1) infinite; }
+#rec-btn[data-mo="pausado"]::before { opacity: .25; }
+#rec-btn[data-mo="pausado"] #rec-label { animation: mo-blink 1.6s ease-in-out infinite; }
+.mo-dgs { display: inline-flex; }
+.mo-dg { display: inline-block; }
+
+/* Botão de pausa: nasce de largura 0 (o dock se reajusta suavemente) */
+#pause-btn { overflow: hidden; transition: width var(--mo-base) var(--mo-ease-out), margin var(--mo-base) var(--mo-ease-out), opacity var(--mo-fade) ease, scale var(--mo-base) var(--mo-ease-pop), background-color var(--mo-fast), visibility 0s; }
+#pause-btn.hidden {
+    display: flex !important; width: 0; margin-left: -.5rem; opacity: 0; scale: .4; visibility: hidden; pointer-events: none;
+    transition: width var(--mo-base) var(--mo-ease-in), margin var(--mo-base) var(--mo-ease-in), opacity var(--mo-fade) ease, scale var(--mo-base) var(--mo-ease-in), visibility 0s linear var(--mo-fade);
+}
+.wave-bar { transition-timing-function: var(--mo-ease-out); }
+
+/* ---------- Gráfico de locutores / chips ---------- */
+#synth-chips > div, #pill-avatars > div { transform-origin: center; }

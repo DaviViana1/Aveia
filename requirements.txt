@@ -1,0 +1,9 @@
+faster-whisper>=1.1
+sherpa-onnx
+numpy
+av>=14,<17
+fastapi>=0.115
+starlette>=0.40
+uvicorn[standard]
+python-multipart>=0.0.18
+scipy

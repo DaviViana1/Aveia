@@ -1,0 +1,2695 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aveia - Notas Inteligentes</title>
+    <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        aveia: '#EEECEB',       // Surface
+                        amendoa: '#B18A65',     // Primary
+                        mirtilo: '#262F3A',     // Secondary
+                        framboesa: '#AF272F',   // Accent
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        serif: ['Newsreader', 'serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { background-color: #EEECEB; color: #262F3A; -webkit-font-smoothing: antialiased; }
+
+        .wave-bar { width: 3px; height: 4px; background-color: #EEECEB; opacity: .35; border-radius: 9999px; transition: height .12s ease, opacity .2s ease; }
+        .live .wave-bar { background-color: #AF272F; opacity: 1; }
+
+        html { scroll-padding-top: 5rem; }   /* âncoras e rolagens automáticas não ficam atrás do cabeçalho flutuante */
+        /* Sem transparência (preferência do sistema) ou com contraste alto: o cabeçalho fica opaco, sem desfoque. */
+        @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+            #topo { background: #fff !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+        }
+        [contenteditable]:focus { outline: none; }
+        [contenteditable]:empty:before { content: attr(data-placeholder); color: #B18A65; opacity: .5; pointer-events: none; }
+        /* Título escrito pela IA: entra com um leve esmaecer (sem depender de motion.css) */
+        @keyframes titulo-entra { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+        .titulo-novo { animation: titulo-entra .6s ease-out; }
+        @media (prefers-reduced-motion: reduce) { .titulo-novo { animation: none; } }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(177,138,101,.25); border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(177,138,101,.45); }
+        .no-bar::-webkit-scrollbar { display: none; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+        .rise { animation: rise .4s cubic-bezier(.16,1,.3,1) both; }
+        .cartao { background: rgba(255,255,255,.6); backdrop-filter: blur(12px); border-radius: 1.5rem; border: 1px solid rgba(255,255,255,.8); box-shadow: 0 8px 30px rgb(38 47 58 / .04); }
+
+        /* Cartões legíveis: coluna única de 48rem no mobile/tablet e sem transcrição.
+           Desktop largo com transcrição: nota + resumo à esquerda, transcrição fixa à direita (rolagem própria). */
+        #layout:not(.dividido) .cartao { width: 100%; max-width: 48rem; margin-inline: auto; }
+        @media (max-width: 1279px) { #layout .cartao { width: 100%; max-width: 48rem; margin-inline: auto; } }
+        @media (min-width: 1280px) {
+            #layout.dividido { grid-template-columns: minmax(0, 1fr) 420px; }
+            #layout.dividido > #col-nota { display: block; grid-column: 1; grid-row: 1; }
+            #layout.dividido #col-nota > * + * { margin-top: 1.5rem; }
+            #layout.dividido > .painel-transcricao { grid-column: 2; grid-row: 1; position: sticky; top: 5rem; max-height: calc(100vh - 12rem); overflow-y: auto; }
+        }
+
+        /* Chat flutuante: acima do dock (que ocupa ~4.5rem a partir de 1rem do fundo) e acima do teclado do celular (--kb). */
+        #chat { bottom: calc(5.25rem + var(--kb, 0px)); }
+        footer { transform: translateY(calc(-1 * var(--kb, 0px))); }
+        .chat-painel { max-height: calc(100dvh - 8rem); display: flex; flex-direction: column; min-height: 0; }
+        /* Feed do chat: fala e destaques juntos, no máximo 10 linhas; o que não cabe sai inteiro pelo topo (nunca um item cortado ao meio).
+           Os mais antigos ficam mais apagados (opacidade por posição, ajustada no script). Com o ponteiro em cima, tudo volta ao normal. */
+        .chat-feed { display: flex; flex-direction: column; justify-content: flex-end; gap: .125rem; overflow: hidden; flex: 0 1 auto; min-height: 0;
+            max-height: calc(10 * 1.25rem + 9 * .125rem); }
+        .chat-linha { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr) 1.25rem; column-gap: .5rem; align-items: start; }
+        .chat-feed.hidden { display: none; }
+        .chat-feed > * { transition: opacity .3s ease; }
+        .chat-feed:hover > * { opacity: 1 !important; }
+        body.chat-aberto #layout { padding-bottom: 22rem; }
+        @media (prefers-reduced-motion: reduce) { .chat-painel { animation: none; } }
+
+        /* Dock em tela estreita (320 a 639 px): sem onda sonora nem separador, "Gerar" só com o ícone, espaços menores. */
+        @media (max-width: 639px) {
+            footer.fixed { padding-inline: .5rem; }
+            footer.fixed > div.pointer-events-auto { padding: .375rem; gap: .25rem; }
+            #waveform, footer > div > .w-px { display: none; }
+            #rec-btn { min-width: 0; padding-left: .75rem; padding-right: .875rem; gap: .5rem; }
+            #magic-btn { width: 2.25rem; height: 2.25rem; padding: 0; justify-content: center; }
+            #magic-btn span { display: none; }
+        }
+        @media (max-width: 359px) { #rec-btn { padding-left: .625rem; padding-right: .75rem; gap: .375rem; } }
+
+        /* "Transcrevendo" com três pontos que acendem em sequência (discreto; sem movimento se o sistema pede menos animação). */
+        .pontos-anim { display: inline-flex; align-items: center; gap: 2px; margin-left: -2px; }
+        .pontos-anim.hidden { display: none; }
+        .pontos-anim i { width: 3px; height: 3px; border-radius: 9999px; background: currentColor; opacity: .25; animation: ponto-acende 1.2s ease-in-out infinite; }
+        .pontos-anim i:nth-child(2) { animation-delay: .2s; } .pontos-anim i:nth-child(3) { animation-delay: .4s; }
+        @keyframes ponto-acende { 0%, 70%, 100% { opacity: .25; } 35% { opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .pontos-anim i { animation: none; opacity: .7; } #aovivo-estado .animate-pulse { animation: none; } }
+
+        /* Markdown renderizado nas notas */
+        .md { word-break: break-word; }
+        .md > * + * { margin-top: .75rem; }
+        .md-h { font-family: 'Newsreader', serif; font-weight: 500; color: #262F3A; letter-spacing: -.01em; line-height: 1.25; margin-top: 1.25rem; }
+        h1.md-h { font-size: 1.75rem; } h2.md-h { font-size: 1.45rem; } h3.md-h { font-size: 1.2rem; }
+        h4.md-h, h5.md-h, h6.md-h { font-family: 'Inter', sans-serif; font-size: 1.05rem; font-weight: 600; }
+        .md-lista { padding-left: 1.4rem; }
+        ul.md-lista { list-style: disc; } ul.md-lista ul.md-lista { list-style: circle; } ol.md-lista { list-style: decimal; }
+        .md-lista .md-lista { margin-top: .25rem; } .md-lista li { padding-left: .15rem; } .md-lista li + li { margin-top: .25rem; }
+        .md-lista li::marker { color: #B18A65; }
+        .md li.md-tarefa { list-style: none; margin-left: -1.4rem; display: flex; align-items: flex-start; gap: .6rem; }
+        .md-tarefa input { accent-color: #B18A65; margin-top: .5rem; width: 1rem; height: 1rem; flex-shrink: 0; cursor: pointer; }
+        .md-feito { text-decoration: line-through; opacity: .5; }
+        .md-quote { border-left: 3px solid rgba(177,138,101,.5); padding-left: 1rem; color: rgba(38,47,58,.65); }
+        .md code { background: rgba(177,138,101,.15); padding: .05rem .35rem; border-radius: .35rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .88em; }
+        .md-pre { background: rgba(38,47,58,.05); border-radius: .75rem; padding: .75rem 1rem; overflow-x: auto; font-size: .9rem; }
+        .md-pre code { background: none; padding: 0; }
+        .md a { color: #AF272F; text-decoration: underline; text-underline-offset: 2px; }
+        .md-hr { border: 0; border-top: 1px solid rgba(177,138,101,.3); margin: 1.25rem 0; }
+        .md-tabela { border-collapse: collapse; font-size: .95em; }
+        .md-tabela th, .md-tabela td { border: 1px solid rgba(177,138,101,.25); padding: .4rem .7rem; text-align: left; }
+        .md-tabela th { background: rgba(177,138,101,.1); font-weight: 600; }
+
+        /* Resumo editável como um bloco de notas: o texto fica onde está, sem borda, sem fundo e sem mudar de fonte ao receber o cursor. */
+        .ed { outline: none; cursor: text; caret-color: #B18A65; overflow-wrap: anywhere; -webkit-tap-highlight-color: transparent; }
+        .ed:empty { min-height: 1.4em; }
+        .drop-antes { box-shadow: inset 0 2px 0 #B18A65; }
+        .drop-depois { box-shadow: inset 0 -2px 0 #B18A65; }
+        .drop-dentro { background-color: rgba(177,138,101,.18); }
+    </style>
+    <link rel="stylesheet" href="/static/motion.css">
+    <script src="/static/motion.js" defer></script>
+</head>
+<body class="min-h-screen flex flex-col px-4 pb-4 pt-[4.75rem] sm:px-8 sm:pb-8 sm:pt-[5rem] selection:bg-amendoa/20 selection:text-mirtilo">
+
+    <!-- Header flutuante: barra fixa encostada no topo e nas laterais (largura total), em vidro fosco, com uma linha fina embaixo e sombra só
+         embaixo. O miolo (logotipo, selo e ícones) fica alinhado ao conteúdo da página. O corpo reserva o espaço dele. -->
+    <header id="topo" class="fixed top-0 inset-x-0 z-[25] bg-white/70 backdrop-blur-md border-b border-white/80 shadow-[0_10px_24px_-14px_rgb(38,47,58,0.16)]">
+    <div class="relative w-full max-w-[1264px] mx-auto h-14 px-4 sm:px-8 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2.5 shrink-0">
+            <img src="/static/logo.svg" alt="Aveia" class="h-8 w-auto">
+
+            <span class="hidden sm:block font-serif text-xl font-medium tracking-tight text-mirtilo">aveia</span>
+            <span id="selo-motor" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-mirtilo/5 text-mirtilo/60"><i id="selo-motor-icone" class="ph ph-desktop text-xs"></i><span id="selo-motor-rotulo">Local</span></span>
+        </div>
+
+        <div class="flex items-center gap-1 shrink-0">
+            <button onclick="copiar()" class="w-8 h-8 rounded-full flex items-center justify-center text-mirtilo/60 hover:text-mirtilo hover:bg-mirtilo/5 transition-all" title="Copiar">
+                <i class="ph ph-copy text-lg"></i>
+            </button>
+            <button onclick="baixar('txt')" class="w-8 h-8 rounded-full flex items-center justify-center text-mirtilo/60 hover:text-mirtilo hover:bg-mirtilo/5 transition-all" title="Baixar">
+                <i class="ph ph-download-simple text-lg"></i>
+            </button>
+            <button onclick="alternarAjustes(event)" class="w-8 h-8 rounded-full flex items-center justify-center text-mirtilo/60 hover:text-mirtilo hover:bg-mirtilo/5 transition-all" title="Ajustes">
+                <i class="ph ph-sliders-horizontal text-lg"></i>
+            </button>
+        </div>
+
+        <!-- Ajustes -->
+        <div id="ajustes" onclick="event.stopPropagation()" class="hidden absolute right-4 sm:right-8 top-[3.75rem] z-30 w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-5rem)] overflow-y-auto p-4 rounded-2xl bg-white shadow-[0_12px_40px_rgb(38,47,58,0.12)] border border-mirtilo/5 space-y-3 rise">
+            <label class="block">
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-amendoa">Microfone</span>
+                <select id="cfg-mic" class="mt-1 w-full rounded-xl bg-aveia/70 px-3 py-2 text-sm outline-none border border-transparent focus:border-amendoa/40"></select>
+            </label>
+            <label class="block">
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-amendoa">Idioma</span>
+                <select id="cfg-idioma" class="mt-1 w-full rounded-xl bg-aveia/70 px-3 py-2 text-sm outline-none border border-transparent focus:border-amendoa/40">
+                    <option value="pt">Português</option>
+                    <option value="en">Inglês</option>
+                    <option value="es">Espanhol</option>
+                    <option value="auto">Automático</option>
+                </select>
+            </label>
+            <label class="block">
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-amendoa">Locutores</span>
+                <input id="cfg-locutores" type="number" min="0" max="12" class="mt-1 w-full rounded-xl bg-aveia/70 px-3 py-2 text-sm outline-none border border-transparent focus:border-amendoa/40" placeholder="0 = automático">
+            </label>
+            <label class="block">
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-amendoa">Glossário (opcional)</span>
+                <textarea id="cfg-glossario" rows="2" maxlength="600" class="mt-1 w-full rounded-xl bg-aveia/70 px-3 py-2 text-sm outline-none border border-transparent focus:border-amendoa/40 resize-y" placeholder="Nomes e termos curtos, separados por vírgula ou linha"></textarea>
+                <span class="block mt-0.5 text-[11px] leading-snug text-mirtilo/50">Ajuda o Whisper local a acertar a grafia. Poucos termos; não corrige trechos perdidos. A Groq não usa.</span>
+            </label>
+            <label class="block">
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-amendoa">Motor de transcrição</span>
+                <select id="cfg-motor" class="mt-1 w-full rounded-xl bg-aveia/70 px-3 py-2 text-sm outline-none border border-transparent focus:border-amendoa/40">
+                    <option value="local">Local · privado (padrão)</option>
+                    <option value="groq">Groq · nuvem (envia o áudio)</option>
+                </select>
+                <p id="motor-aviso" class="hidden mt-1.5 text-[11px] leading-snug text-framboesa"></p>
+            </label>
+            <label class="flex items-start gap-2.5 cursor-pointer">
+                <input id="cfg-aovivo" type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-amendoa cursor-pointer">
+                <span class="min-w-0">
+                    <span class="block text-[11px] font-semibold uppercase tracking-wider text-amendoa">Transcrever durante a gravação</span>
+                    <span class="block mt-0.5 text-[11px] leading-snug text-mirtilo/50">Usa o processador durante a reunião. Desligue se a chamada ficar lenta.</span>
+                </span>
+            </label>
+            <label class="flex items-start gap-2.5 cursor-pointer">
+                <input id="cfg-audiosistema" type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-amendoa cursor-pointer disabled:cursor-not-allowed">
+                <span class="min-w-0">
+                    <span class="block text-[11px] font-semibold uppercase tracking-wider text-amendoa">Capturar o áudio do computador (reuniões online)</span>
+                    <span class="block mt-0.5 text-[11px] leading-snug text-mirtilo/50">Ao gravar, o navegador pede para compartilhar uma aba ou a tela: marque "Compartilhar áudio". Funciona só no Chrome e no Edge.</span>
+                    <span id="sistema-motivo" class="hidden mt-1 text-[11px] leading-snug text-framboesa">Este navegador não permite capturar o áudio do computador.</span>
+                </span>
+            </label>
+            <label id="iaauto-rotulo" class="flex items-start gap-2.5 cursor-pointer">
+                <input id="cfg-iaauto" type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-amendoa cursor-pointer disabled:cursor-not-allowed">
+                <span class="min-w-0">
+                    <span class="block text-[11px] font-semibold uppercase tracking-wider text-amendoa">IA (título, resumo, nomes e destaques)</span>
+                    <span id="iaauto-dica" class="block mt-0.5 text-[11px] leading-snug text-mirtilo/50">Envia o texto da gravação à nuvem depois de cada transcrição.</span>
+                    <span id="iaauto-aviso" class="hidden mt-1 text-[11px] leading-snug text-mirtilo/70"></span>
+                </span>
+            </label>
+            <details id="priv" class="group rounded-xl bg-aveia/50 px-3 py-2">
+                <summary class="cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-amendoa">
+                    <span class="inline-flex items-center gap-1.5"><i class="ph ph-shield-check text-sm"></i>Privacidade</span>
+                    <i class="ph ph-caret-down text-xs transition-transform group-open:rotate-180"></i>
+                </summary>
+                <div id="priv-corpo" class="mt-2 space-y-2.5 text-[11px] leading-snug text-mirtilo/70"></div>
+                <p class="mt-2 text-[11px] leading-snug text-mirtilo/50">As notas ficam só neste navegador. Use Exportar tudo para guardar.</p>
+                <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
+                    <button onclick="exportarTudo()" class="text-xs font-medium text-mirtilo/60 hover:text-mirtilo inline-flex items-center gap-1.5"><i class="ph ph-export"></i>Exportar tudo</button>
+                    <button onclick="apagarTudo()" class="text-xs font-medium text-framboesa/80 hover:text-framboesa inline-flex items-center gap-1.5"><i class="ph ph-trash"></i>Apagar tudo</button>
+                </div>
+            </details>
+            <details id="pc" class="group rounded-xl bg-aveia/50 px-3 py-2">
+                <summary class="cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-amendoa">
+                    <span class="inline-flex items-center gap-1.5"><i class="ph ph-desktop text-sm"></i>Seu computador</span>
+                    <i class="ph ph-caret-down text-xs transition-transform group-open:rotate-180"></i>
+                </summary>
+                <div id="pc-corpo" class="mt-2 space-y-1.5 text-[11px] leading-snug text-mirtilo/70"></div>
+                <div class="mt-2 flex items-center justify-between gap-2">
+                    <span id="pc-msg" class="text-[11px] leading-snug text-mirtilo/50"></span>
+                    <button id="pc-testar" onclick="testarComputador()" class="text-xs font-medium text-amendoa hover:text-mirtilo inline-flex items-center gap-1.5 disabled:opacity-50"><i class="ph ph-gauge"></i>Testar este computador</button>
+                </div>
+            </details>
+            <div class="flex items-center justify-between pt-1">
+                <div class="flex items-center gap-3">
+                    <button onclick="baixar('srt')" class="text-xs font-medium text-mirtilo/60 hover:text-mirtilo inline-flex items-center gap-1.5"><i class="ph ph-subtitles"></i>.srt</button>
+                    <button onclick="baixar('vtt')" class="text-xs font-medium text-mirtilo/60 hover:text-mirtilo inline-flex items-center gap-1.5"><i class="ph ph-subtitles"></i>.vtt</button>
+                </div>
+                <button onclick="excluirNota()" class="text-xs font-medium text-framboesa/80 hover:text-framboesa inline-flex items-center gap-1.5"><i class="ph ph-trash"></i>Excluir nota</button>
+            </div>
+        </div>
+    </div>
+    </header>
+
+    <!-- Gravações que não terminaram de processar (o áudio fica guardado no navegador) -->
+    <div id="pendentes" class="hidden w-full max-w-[1200px] mx-auto space-y-2 mb-2"></div>
+
+    <!-- Menu lateral flutuante -->
+    <div id="menu-fundo" onclick="alternarMenu()" class="hidden lg:hidden fixed inset-0 z-20 bg-mirtilo/20"></div>
+    <aside id="menu" class="fixed left-4 top-20 bottom-24 z-30 w-64 flex flex-col rounded-3xl bg-white/80 backdrop-blur-md border border-white/80 shadow-[0_12px_40px_rgb(38,47,58,0.10)] transition-all duration-300 -translate-x-[120%] opacity-0 pointer-events-none">
+        <div class="flex items-center justify-between px-4 pt-4 pb-2">
+            <span class="inline-flex items-center gap-1.5 font-serif text-lg font-medium text-mirtilo">Notas<i class="ph ph-info text-sm text-mirtilo/35" title="As notas ficam só neste navegador. Use Exportar tudo para guardar."></i></span>
+            <div class="flex items-center gap-0.5">
+                <button onclick="alternarMenu()" class="w-7 h-7 rounded-full flex items-center justify-center text-mirtilo/50 hover:text-mirtilo hover:bg-mirtilo/5 transition-all" title="Ocultar menu (Ctrl+B)">
+                    <i class="ph ph-sidebar-simple text-base"></i>
+                </button>
+                <button onclick="novoGrupo()" class="w-7 h-7 rounded-full flex items-center justify-center text-mirtilo/50 hover:text-mirtilo hover:bg-mirtilo/5 transition-all" title="Novo grupo">
+                    <i class="ph ph-folder-simple-plus text-base"></i>
+                </button>
+                <button onclick="novaNota()" class="w-7 h-7 rounded-full flex items-center justify-center text-amendoa hover:bg-amendoa/15 transition-all" title="Nova nota">
+                    <i class="ph-bold ph-plus text-sm"></i>
+                </button>
+            </div>
+        </div>
+        <nav id="menu-lista" class="flex-1 overflow-y-auto px-2 pb-3 space-y-1"></nav>
+    </aside>
+
+    <!-- Aba para reabrir o menu (visível só quando oculto) -->
+    <button id="menu-aba" onclick="alternarMenu()" title="Mostrar menu (Ctrl+B)" class="fixed left-0 top-1/2 -translate-y-1/2 z-20 w-6 h-14 rounded-r-2xl bg-white/80 backdrop-blur-md border border-l-0 border-white/80 shadow-[0_8px_24px_rgb(38,47,58,0.10)] flex items-center justify-center text-mirtilo/50 hover:text-mirtilo hover:w-8 transition-all">
+        <i class="ph ph-sidebar-simple text-sm"></i>
+    </button>
+
+    <!-- Nota -->
+    <main id="layout" class="w-full max-w-[1200px] mx-auto flex-1 py-6 pb-28 grid gap-6 items-start">
+        <!-- Coluna principal: nota + resumo. No mobile os itens se soltam na grade (nota, resumo, transcrição). -->
+        <div id="col-nota" class="contents">
+        <article class="cartao p-6 sm:p-10 order-1 xl:order-none">
+
+            <!-- Contexto -->
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amendoa/10 text-amendoa text-xs font-medium mb-6">
+                <i class="ph-fill ph-calendar-blank"></i>
+                <span id="note-time">--:--</span>
+                <span id="pill-sep" class="opacity-40 hidden">•</span>
+                <div id="pill-avatars" class="flex -space-x-1.5"></div>
+            </div>
+
+            <h1 id="note-title" contenteditable="true" data-placeholder="Título..." class="font-serif text-3xl sm:text-4xl lg:text-5xl text-mirtilo font-medium tracking-tight mb-6"></h1>
+
+            <!-- Tópicos -->
+            <div id="note-body" class="text-mirtilo/80 text-base sm:text-lg leading-relaxed">
+                <div id="note-view" class="md hidden cursor-text min-h-[3rem]" title="Clique para editar"></div>
+                <textarea id="note-edit" rows="1" spellcheck="true" placeholder="Escreva livremente. Markdown funciona: # título, **negrito**, - lista, [ ] tarefa"
+                          class="w-full resize-none overflow-hidden bg-transparent outline-none leading-relaxed placeholder:text-amendoa/50"></textarea>
+                <p id="md-dica" class="hidden mt-3 text-[11px] text-mirtilo/35">Markdown: # título · **negrito** · *itálico* · ~~riscado~~ · - lista · 1. numerada · [ ] tarefa · &gt; citação · `código` · [texto](link) · Tab recua a lista · Esc sai da edição</p>
+            </div>
+        </article>
+
+            <!-- Resumo executivo (IA) -->
+            <section id="resumo" class="hidden cartao p-6 sm:p-10 order-2 xl:order-none">
+                <div class="flex items-center justify-between mb-4">
+                    <span class="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amendoa">
+                        <i class="ph-fill ph-sparkle"></i> Resumo executivo
+                    </span>
+                    <div class="flex items-center gap-2">
+                        <span id="resumo-modelo" class="text-[11px] font-mono text-mirtilo/35"></span>
+                        <button id="resumo-desfazer" onclick="desfazerRefazer()" class="hidden w-6 h-6 rounded-full items-center justify-center text-mirtilo/40 hover:text-mirtilo hover:bg-mirtilo/5 transition-all [&:not(.hidden)]:flex" title="Voltar ao resumo anterior" aria-label="Voltar ao resumo anterior">
+                            <i class="ph ph-arrow-counter-clockwise text-sm"></i>
+                        </button>
+                        <button id="resumo-refazer" onclick="gerarResumo()" class="hidden w-6 h-6 rounded-full items-center justify-center text-mirtilo/40 hover:text-mirtilo hover:bg-mirtilo/5 transition-all [&:not(.hidden)]:flex" title="Refazer resumo">
+                            <i class="ph ph-arrow-clockwise text-sm"></i>
+                        </button>
+                    </div>
+                </div>
+                <div id="resumo-corpo" class="space-y-5"></div>
+                <div id="synth-chips" class="mt-6 flex flex-wrap gap-2"></div>
+                <div id="synth-bars" class="mt-5 space-y-2.5"></div>
+            </section>
+        </div>
+
+            <!-- Transcrição original: coluna lateral fixa, com rolagem própria, no desktop -->
+            <section id="transcript" class="hidden cartao p-6 sm:p-8 painel-transcricao order-3 xl:order-none">
+                <span class="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amendoa mb-5">
+                    <i class="ph-fill ph-waveform"></i> Transcrição original
+                    <span id="aovivo-estado" class="hidden items-center gap-1.5 ml-2 normal-case tracking-normal text-[11px] font-medium text-framboesa [&:not(.hidden)]:inline-flex"><span class="w-1.5 h-1.5 rounded-full bg-framboesa animate-pulse"></span><span id="aovivo-rotulo">ao vivo</span><span id="aovivo-pontos" class="pontos-anim hidden" aria-hidden="true"><i></i><i></i><i></i></span></span>
+                    <span id="ident-estado" class="hidden items-center gap-1 ml-2 normal-case tracking-normal text-[11px] font-medium text-mirtilo/40 [&:not(.hidden)]:inline-flex"><i class="ph ph-circle-notch spin"></i> Identificando locutores…</span>
+                    <button id="ident-btn" onclick="identificarLocutores(nota(), true)" class="hidden w-5 h-5 ml-1 rounded-full items-center justify-center normal-case text-mirtilo/35 hover:text-amendoa hover:bg-amendoa/10 transition-colors [&:not(.hidden)]:inline-flex" title="Descobrir o nome dos locutores pela conversa (IA). Nomes que você definiu nunca são alterados."><i class="ph ph-user-focus text-sm"></i></button>
+                </span>
+                <div id="turns" class="space-y-5"></div>
+            </section>
+    </main>
+
+    <!-- Chat flutuante da gravação (Destaques): fica acima do dock, sobre a transcrição que segue ao vivo por baixo.
+         Cada mensagem é marcada no ponto da transcrição e ganha ênfase no resumo. -->
+    <section id="chat" aria-label="Chat da gravação" class="hidden fixed inset-x-0 z-20 px-4 pointer-events-none">
+        <div class="chat-painel pointer-events-auto mx-auto w-full max-w-xl rounded-3xl border border-white/80 bg-white/55 backdrop-blur-xl p-4 shadow-[0_16px_48px_rgb(38,47,58,0.14)] rise">
+            <div class="flex items-center justify-between mb-2.5">
+                <span class="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amendoa">
+                    <i class="ph-fill ph-chat-circle-text"></i> Chat
+                    <span id="chat-tempo" class="ml-1 normal-case tracking-normal font-mono text-[11px] font-normal text-mirtilo/40"></span>
+                </span>
+            </div>
+            <div id="chat-lista" class="chat-feed hidden mb-2.5" aria-live="polite"></div>
+            <p id="chat-vazio" class="mb-2.5 text-[13px] leading-snug text-mirtilo/50">A fala aparece aqui. Escreva o que for importante: fica marcado neste ponto.</p>
+            <form id="chat-form" class="flex items-end gap-2" onsubmit="event.preventDefault(); enviarDestaque()">
+                <textarea id="chat-input" rows="1" maxlength="300" spellcheck="true" disabled
+                          class="flex-1 min-w-0 resize-none max-h-28 overflow-y-hidden bg-aveia/70 rounded-2xl px-4 py-2.5 text-sm leading-relaxed outline-none border border-transparent focus:border-amendoa/40 placeholder:text-amendoa/50 disabled:opacity-50 disabled:cursor-not-allowed"></textarea>
+                <button id="chat-enviar" type="submit" disabled title="Enviar (Enter)"
+                        class="w-9 h-9 shrink-0 rounded-full flex items-center justify-center bg-amendoa text-aveia hover:brightness-105 active:scale-95 transition-all disabled:opacity-40 disabled:pointer-events-none">
+                    <i class="ph-fill ph-paper-plane-tilt text-base"></i>
+                </button>
+            </form>
+        </div>
+    </section>
+
+    <!-- Dock -->
+    <footer class="fixed bottom-4 inset-x-0 z-20 flex justify-center px-4 pointer-events-none">
+        <div class="pointer-events-auto bg-mirtilo text-aveia p-2 rounded-full shadow-xl flex items-center gap-2 border border-white/10">
+
+            <button id="rec-btn" onclick="alternarGravacao()" class="flex items-center gap-2.5 pl-3 pr-4 py-2 rounded-full bg-framboesa text-aveia font-medium text-xs tracking-wide hover:brightness-110 active:scale-95 transition-all min-w-[92px] justify-center">
+                <i id="rec-icon" class="ph-fill ph-microphone text-sm"></i>
+                <span id="rec-label" class="font-mono">Gravar</span>
+            </button>
+
+            <button id="pause-btn" onclick="alternarPausa()" class="hidden w-9 h-9 rounded-full items-center justify-center text-aveia bg-aveia/10 hover:bg-aveia/20 active:scale-95 transition-all [&:not(.hidden)]:flex" title="Pausar">
+                <i id="pause-icon" class="ph-fill ph-pause text-sm"></i>
+            </button>
+
+            <div id="waveform" class="flex items-center gap-1 px-2 h-6">
+                <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+            </div>
+
+            <span id="canais-estado" class="hidden items-center gap-1 text-[10px] font-medium text-aveia/70 [&:not(.hidden)]:inline-flex" title="O microfone e o áudio do computador estão sendo gravados em canais separados"><i class="ph ph-desktop"></i><span id="canais-rotulo">mic + computador</span></span>
+
+            <div class="w-px h-5 bg-aveia/15"></div>
+
+            <button onclick="adicionarTopico()" class="w-9 h-9 rounded-full flex items-center justify-center text-aveia/70 hover:text-aveia hover:bg-aveia/10 transition-all" title="Adicionar item de lista">
+                <i class="ph ph-list-plus text-lg"></i>
+            </button>
+            <button onclick="$('arquivo').click()" class="w-9 h-9 rounded-full flex items-center justify-center text-aveia/70 hover:text-aveia hover:bg-aveia/10 transition-all" title="Importar áudio">
+                <i class="ph ph-upload-simple text-lg"></i>
+            </button>
+            <input id="arquivo" type="file" accept="audio/*,video/*" class="hidden" onchange="importar(this)">
+
+            <button id="magic-btn" onclick="gerarResumo()" title="Gerar resumo" class="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-amendoa text-aveia font-medium text-xs hover:brightness-105 active:scale-95 transition-all">
+                <i class="ph-fill ph-sparkle text-sm"></i><span>Gerar</span>
+            </button>
+        </div>
+    </footer>
+
+    <!-- Toast -->
+    <div id="toast" class="fixed top-5 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full bg-mirtilo text-aveia text-xs font-medium shadow-lg opacity-0 pointer-events-none transition-opacity duration-300 flex items-center gap-2">
+        <i id="toast-icon" class="ph-fill ph-check-circle text-amendoa"></i>
+        <span id="toast-text"></span>
+    </div>
+
+    <script src="/static/mic.js"></script>
+    <script src="/static/nomes.js"></script>
+    <script>
+        const $ = id => document.getElementById(id);
+        const LS = 'aveia.v1';
+        const CORES = ['#262F3A', '#B18A65', '#AF272F', '#5E6B7A', '#7A5A3E', '#8C3B41'];
+        const PADRAO = { idioma: 'pt', locutores: 0, aoVivo: true, audioSistema: false, glossario: '', ia: true };   // aoVivo: transcrever durante a gravação; audioSistema: gravar também o áudio do computador (canal separado); ia: interruptor único da IA (padrão ligado; desligado = nenhuma chamada de IA)
+
+        // ---------- Estado ----------
+        let state = carregar();
+        function carregar() {
+            try {
+                const s = JSON.parse(localStorage.getItem(LS));
+                if (s && Array.isArray(s.notes)) {
+                    s.cfg = { ...PADRAO, ...s.cfg };
+                    // Migração: as notas antigas eram listas de tópicos; viram texto Markdown com itens de lista.
+                    s.notes.forEach(n => {
+                        if (typeof n.texto !== 'string') n.texto = (n.bullets || []).filter(b => b && b.trim()).map(b => '- ' + b.trim()).join('\n');
+                        delete n.bullets;
+                        // Destaques (chat durante a gravação): { id, t (s desde o início da nota: quando a pessoa começou a digitar), texto, em,
+        // ancora + cobre {inicio, fim}: o trecho que ele cobre (até 10 s antes de t; a IA pode reduzi-lo), modo: 'ia' se a IA escolheu }.
+        // Notas antigas só têm t.
+                        n.destaques = (Array.isArray(n.destaques) ? n.destaques : [])
+                            .filter(d => d && typeof d.texto === 'string' && d.texto.trim() && Number.isFinite(+d.t))
+                            .map(d => {
+                                const o = { id: String(d.id || 'd' + d.em), t: +d.t, texto: d.texto, em: +d.em || 0 };
+                                if (Number.isFinite(+d.ancora) && d.ancora !== null) o.ancora = +d.ancora;   // início do trecho que o destaque cobre
+                                if (d.cobre && Number.isFinite(+d.cobre.inicio) && Number.isFinite(+d.cobre.fim)) o.cobre = { inicio: +d.cobre.inicio, fim: +d.cobre.fim };
+                                if (d.modo === 'ia') o.modo = 'ia';
+                                return o;
+                            });
+                        // Trechos possivelmente incompletos (só visual): { inicio, fim, estado: 'parcial' | 'nao_recuperada' }. Notas antigas não têm.
+                        n.lacunas = (Array.isArray(n.lacunas) ? n.lacunas : [])
+                            .filter(l => l && Number.isFinite(+l.inicio) && Number.isFinite(+l.fim) && ['parcial', 'nao_recuperada'].includes(l.estado))
+                            .map(l => ({ inicio: +l.inicio, fim: +l.fim, estado: l.estado }));
+                    });
+                    delete s.cfg.modelo;   // o modelo (large-v3-turbo) agora é único e fixo no servidor
+                    if (!Array.isArray(s.groups) || !s.groups.length) s.groups = [{ id: 'geral', nome: 'Geral', aberto: true }];
+                    s.notes.forEach(n => { if (!s.groups.some(g => g.id === n.grupo)) n.grupo = s.groups[0].id; });
+                    if (typeof s.menu !== 'boolean') s.menu = innerWidth >= 1024;
+                    return s;
+                }
+            } catch {}
+            return { notes: [], groups: [{ id: 'geral', nome: 'Geral', aberto: true }], menu: innerWidth >= 1024, atual: null, cfg: { ...PADRAO } };
+        }
+        function salvar() { try { localStorage.setItem(LS, JSON.stringify(state)); return true; } catch { return false; } }
+        function nota() { return state.notes.find(n => n.id === state.atual); }
+        function criarNota() {
+            const g = state.groups.find(x => x.id === nota()?.grupo) || state.groups[0];
+            const primeira = state.notes.find(x => x.grupo === g.id);
+            const n = { id: String(Date.now()), criada: Date.now(), grupo: g.id, titulo: '', texto: '', falas: [], nomes: {}, duracao: 0, destaques: [] };
+            state.notes.splice(primeira ? state.notes.indexOf(primeira) : state.notes.length, 0, n);   // topo do grupo
+            g.aberto = true; state.atual = n.id; return n;
+        }
+
+        // ---------- Utilidades ----------
+        const fmt = s => {
+            s = Math.max(0, Math.floor(s));
+            const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+            const mm = String(m).padStart(2, '0'), ss = String(x).padStart(2, '0');
+            return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+        };
+        function el(tag, cls, text) {
+            const e = document.createElement(tag);
+            if (cls) e.className = cls;
+            if (text != null) e.textContent = text;
+            return e;
+        }
+        function rotulos(n) { return [...new Set(n.falas.map(f => f.locutor))]; }
+        // Nome-base dos arquivos da nota em gravacoes/ (Áudio, Transcrições, Análises): o mesmo nas três pastas.
+        // Definido uma vez, na primeira gravação salva, a partir da data de criação e do título de então.
+        function baseDe(n) {
+            if (!n.base) {
+                const d = new Date(n.criada || Date.now()), z = x => String(x).padStart(2, '0');
+                const slug = (n.titulo || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
+                let base = `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}` + (slug ? '-' + slug : '');
+                if (state.notes.some(o => o !== n && o.base === base)) base += '-' + String(n.id).slice(-4);
+                n.base = base;
+            }
+            return n.base;
+        }
+        const NOMES_PASTAS = { audio: 'Áudio', transcricao: 'Transcrições', analise: 'Análises' };
+        function avisarLimite(r) {
+            const cheias = Object.entries(r?.salvos || {}).filter(([, ok]) => ok === false).map(([k]) => NOMES_PASTAS[k]);
+            if (cheias.length) aviso(`Sem vaga em ${cheias.join(', ')} (limite de ${r.limite} arquivos por pasta). Mantido só no navegador.`, true);
+        }
+        const falasComNomes = n => n.falas.map(f => ({ inicio: f.inicio, fim: f.fim, locutor: nomeDe(n, f.locutor), texto: f.texto }));
+        const duracaoDe = n => n.duracao || n.falas.reduce((m, f) => Math.max(m, f.fim), 0);
+        // Destaques em ordem de tempo e no formato do servidor ({ t, texto }).
+        const JANELA_ANTES_S = 10;   // o destaque cobre as falas de até 10 s antes de a pessoa começar a digitar
+        const posDe = d => Number.isFinite(d.ancora) ? d.ancora : d.t;   // onde o destaque aparece: antes do trecho que ele cobre
+        const destaquesOrdenados = n => [...(n.destaques || [])].sort((a, b) => posDe(a) - posDe(b));
+        const destaquesPara = n => destaquesOrdenados(n).map(d => ({ t: posDe(d), texto: d.texto }));
+        // Falas e destaques por ordem de tempo: o destaque vem antes da primeira fala que começa depois dele (ou no fim).
+        // `extra`: falas provisórias da gravação em andamento (só para exibir; nunca entram em n.falas nem nas exportações).
+        // `marcas`: acrescenta os avisos de trecho possivelmente incompleto ({ lacuna }), que só existem na tela: as exportações não os pedem.
+        // Uma fala longa (o locutor único junta tudo até uma pausa de 30 s) pode conter o trecho que um destaque cobre (de até 10 s
+        // antes de a pessoa começar a digitar até esse instante, ou o que a IA escolheu). Para o destaque cair no ponto certo, a fala
+        // é partida em até três: antes, trecho coberto (com o realce) e depois. Só na exibição e nas exportações: a nota guarda a
+        // fala inteira. O navegador não recebe o tempo de cada palavra, então o corte é estimado pela posição proporcional ao tempo
+        // e levado à fronteira de frase mais próxima (ou de palavra, se a fala tem uma frase só).
+        function fronteirasDeFrase(texto) {   // índices onde começa a frase seguinte
+            const r = [], re = /[.!?…]+["')\]»]*\s+/g; let m;
+            while ((m = re.exec(texto))) { const i = m.index + m[0].length; if (i < texto.length) r.push(i); }
+            return r;
+        }
+        function pontosDeCorte(texto) {   // inclui 0 e o fim
+            let fr = fronteirasDeFrase(texto);
+            if (!fr.length) fr = [...texto.matchAll(/\s+/g)].map(m => m.index + m[0].length).filter(i => i < texto.length);
+            return [0, ...fr, texto.length];
+        }
+        const maisPerto = (pts, c) => pts.reduce((a, b) => Math.abs(b - c) < Math.abs(a - c) ? b : a);
+        const ateAqui = (pts, c) => pts.filter(p => p <= c).pop() ?? 0;   // fronteira igual ou anterior: o trecho começa na frase que contém o começo da janela
+        function partirFala(f, ds, usados) {   // ds: destaques em ordem; usados: ids dos destaques que já têm lugar (um cartão só)
+            if (!(f.fim > f.inicio) || !f.texto) return [f];
+            const len = f.texto.length, pts = pontosDeCorte(f.texto), dur = f.fim - f.inicio;
+            const posDeT = t => Math.round((t - f.inicio) / dur * len);
+            const charDe = t => maisPerto(pts, posDeT(t));
+            const tempoDe = c => f.inicio + c / len * dur;
+            const cortes = []; let fimAnterior = 0;
+            ds.forEach(d => {
+                const c = d.cobre && d.cobre.fim > d.cobre.inicio ? d.cobre : null;
+                if (c ? !(c.fim > f.inicio && c.inicio < f.fim) : !(d.t > f.inicio && d.t < f.fim)) return;
+                // Uma frase que só encosta no começo da janela (menos de 1,5 s) fica de fora.
+                let a = c ? (c.inicio <= f.inicio ? 0 : Math.min(len, ateAqui(pts, posDeT(c.inicio + Math.min(1.5, (c.fim - c.inicio) / 3))))) : charDe(d.t);
+                let b = c ? (c.fim >= f.fim ? len : charDe(c.fim)) : a;
+                a = Math.max(a, fimAnterior);
+                if (c && b <= a) b = pts.find(p => p > a) ?? len;   // frase longa: o trecho tem pelo menos a frase onde a janela começa
+                if (b < a) return;
+                if (!c || b === a) { if (a > 0 && a < len) { cortes.push({ a, b: a, d }); fimAnterior = a; } return; }   // sem trecho: só marca o ponto
+                cortes.push({ a, b, d }); fimAnterior = b;
+            });
+            if (!cortes.length) return [f];
+            const partes = []; let ini = 0;
+            const nova = (de, ate, extra, d) => {   // d: o destaque que fica antes desta parte (se ela não for vazia e ele ainda não tem lugar)
+                const texto = f.texto.slice(de, ate).trim();
+                if (!texto) return;
+                const antes = d && !usados.has(d.id) ? (usados.add(d.id), { antes: d }) : {};
+                partes.push({ ...f, texto, inicio: de === 0 ? f.inicio : tempoDe(de), fim: ate >= len ? f.fim : tempoDe(ate), continuacao: de > 0, ...extra, ...antes });
+            };
+            cortes.forEach(({ a, b, d }) => {
+                nova(ini, a);
+                if (b > a) { nova(a, b, { coberto: d.id }, d); ini = b; }
+                else ini = a;
+                if (b === a) partes.push({ __cartao: d });   // ponto simples: o cartão entra aqui
+            });
+            nova(ini, len);
+            // O cartão de um ponto simples vai antes da parte seguinte.
+            const saida = [];
+            let pendente = null;
+            partes.forEach(x => {
+                if (x.__cartao) { pendente = x.__cartao; return; }
+                if (pendente && !usados.has(pendente.id)) { usados.add(pendente.id); saida.push({ ...x, antes: pendente }); } else saida.push(x);
+                pendente = null;
+            });
+            return saida.length ? saida : [f];
+        }
+
+        function intercalar(n, extra = [], marcas = false) {
+            const dsOrdenados = destaquesOrdenados(n), usados = new Set();
+            const partes = (extra.length ? n.falas.concat(extra) : n.falas).flatMap(f => partirFala(f, dsOrdenados, usados));
+            const ds = dsOrdenados.filter(d => !usados.has(d.id)).map(d => ({ t: posDe(d), item: { destaque: d } }));   // os sem trecho: por tempo
+            if (marcas) (n.lacunas || []).forEach(l => ds.push({ t: l.inicio, item: { lacuna: l } }));
+            ds.sort((a, b) => a.t - b.t);
+            const saida = [];
+            let i = 0;
+            partes.forEach(f => {
+                while (i < ds.length && ds[i].t < f.inicio) saida.push(ds[i++].item);
+                if (f.antes) saida.push({ destaque: f.antes, quando: f.inicio });   // o cartão mostra a hora do trecho que cobre
+                saida.push({ fala: f });
+            });
+            while (i < ds.length) saida.push(ds[i++].item);
+            return saida;
+        }
+
+        function nomeDe(n, rotulo) { return (n.nomes[rotulo] || '').trim() || rotulo; }
+        function inicial(n, rotulo) {
+            if (!(n.nomes[rotulo] || '').trim()) { const m = rotulo.match(/(\d+)$/); if (m) return m[1]; }
+            return (nomeDe(n, rotulo)[0] || '?').toUpperCase();
+        }
+        function corDe(n, rotulo) { return CORES[rotulos(n).indexOf(rotulo) % CORES.length]; }
+        function avatar(n, rotulo, tam, ring) {
+            const a = el('div', `${tam} rounded-full flex items-center justify-center text-aveia font-bold shrink-0 ${ring ? 'ring-1 ring-aveia' : ''}`, inicial(n, rotulo));
+            a.style.background = corDe(n, rotulo);
+            return a;
+        }
+        const nomeMotor = m => ({ local: 'Whisper local', groq: 'Groq (nuvem)', 'groq+local': 'Groq + local' }[m] || m);
+        let toastTimer;
+        function aviso(msg, erro) {
+            $('toast-text').textContent = msg;
+            $('toast-icon').className = erro ? 'ph-fill ph-warning-circle text-framboesa' : 'ph-fill ph-check-circle text-amendoa';
+            $('toast').classList.remove('opacity-0');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => $('toast').classList.add('opacity-0'), erro ? 3500 : 1800);
+        }
+
+        // ---------- Renderização ----------
+        function renderizar() {
+            const n = nota();
+            renderMenu();
+            $('note-time').textContent = new Date(n.criada).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            const t = $('note-title');
+            if (t.textContent !== n.titulo) t.textContent = n.titulo;
+            renderTexto();
+            renderChat();
+            renderTranscricao();
+            renderAvatares();
+            renderResumo();
+            renderSintese();
+        }
+
+        // ---------- Markdown: renderizador próprio (monta o DOM com textContent; nada de innerHTML) ----------
+        const MD_LISTA = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+        const MD_TABELA_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+        const MD_INLINE = [
+            { re: /`([^`\n]+)`/, tag: 'code', cru: true },
+            { re: /\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)/, tag: 'a' },
+            { re: /\*\*(?=\S)(.+?)(?<=\S)\*\*|__(?=\S)(.+?)(?<=\S)__/, tag: 'strong' },
+            { re: /~~(?=\S)(.+?)(?<=\S)~~/, tag: 'del' },
+            { re: /\*(?=[^\s*])(.+?)(?<=[^\s*])\*|(?<!\w)_(?=[^\s_])(.+?)(?<=[^\s_])_(?!\w)/, tag: 'em' },
+            { re: /https?:\/\/[^\s<]*[^\s<.,;:!?)\]]/, tag: 'a', auto: true },
+        ];
+        function mdInline(texto, pai) {
+            while (texto) {
+                let melhor = null;
+                for (const r of MD_INLINE) {
+                    const m = r.re.exec(texto);
+                    if (m && (!melhor || m.index < melhor.m.index)) melhor = { r, m };
+                }
+                if (!melhor) { pai.append(texto); return; }
+                const { r, m } = melhor;
+                if (m.index) pai.append(texto.slice(0, m.index));
+                const e = document.createElement(r.tag);
+                if (r.tag === 'a') {
+                    e.href = r.auto ? m[0] : m[2]; e.target = '_blank'; e.rel = 'noopener noreferrer';
+                    if (r.auto) e.textContent = m[0]; else mdInline(m[1], e);
+                } else if (r.cru) e.textContent = m[1];
+                else mdInline(m[1] ?? m[2], e);
+                pai.append(e);
+                texto = texto.slice(m.index + m[0].length);
+            }
+        }
+
+        const mdNo = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
+        function mdIniciaBloco(t, prox) {
+            return /^\s*(```|~~~)/.test(t) || /^#{1,6}\s/.test(t) || /^\s{0,3}>/.test(t) || MD_LISTA.test(t)
+                || /^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(t) || (t.includes('|') && prox !== undefined && MD_TABELA_SEP.test(prox) && prox.includes('-'));
+        }
+
+        // Cada linha leva o seu índice no texto original (i), para que as caixas de tarefa marquem a linha certa.
+        function mdBlocos(L, pai) {
+            let k = 0, m;
+            while (k < L.length) {
+                const t = L[k].t;
+                if (!t.trim()) { k++; continue; }
+                if ((m = /^\s*(```|~~~)/.exec(t))) {
+                    const cerca = m[1], cod = []; k++;
+                    while (k < L.length && !L[k].t.trim().startsWith(cerca)) cod.push(L[k++].t);
+                    k++;
+                    const pre = mdNo('pre', 'md-pre'), c = mdNo('code'); c.textContent = cod.join('\n'); pre.append(c); pai.append(pre);
+                    continue;
+                }
+                if ((m = /^(#{1,6})\s+(.+?)(?:\s+#+)?\s*$/.exec(t))) {
+                    const hd = mdNo('h' + m[1].length, 'md-h'); mdInline(m[2], hd); pai.append(hd); k++;
+                    continue;
+                }
+                if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(t)) { pai.append(mdNo('hr', 'md-hr')); k++; continue; }
+                if (/^\s{0,3}>/.test(t)) {
+                    const q = [];
+                    while (k < L.length && /^\s{0,3}>/.test(L[k].t)) { q.push({ t: L[k].t.replace(/^\s{0,3}>\s?/, ''), i: L[k].i }); k++; }
+                    const bq = mdNo('blockquote', 'md-quote'); mdBlocos(q, bq); pai.append(bq);
+                    continue;
+                }
+                if (t.includes('|') && k + 1 < L.length && MD_TABELA_SEP.test(L[k + 1].t) && L[k + 1].t.includes('-')) {
+                    const celulas = s => s.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+                    const alinh = celulas(L[k + 1].t).map(c => c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : '');
+                    const linhaTabela = (cels, tag) => {
+                        const tr = mdNo('tr');
+                        cels.forEach((c, j) => { const x = mdNo(tag); if (alinh[j]) x.style.textAlign = alinh[j]; mdInline(c, x); tr.append(x); });
+                        return tr;
+                    };
+                    const tb = mdNo('table', 'md-tabela'), cab = mdNo('thead'), corpo = mdNo('tbody');
+                    cab.append(linhaTabela(celulas(t), 'th')); k += 2;
+                    while (k < L.length && L[k].t.trim() && L[k].t.includes('|')) corpo.append(linhaTabela(celulas(L[k++].t), 'td'));
+                    tb.append(cab, corpo);
+                    const rolagem = mdNo('div', 'overflow-x-auto'); rolagem.append(tb); pai.append(rolagem);
+                    continue;
+                }
+                if (MD_LISTA.test(t)) {
+                    const itens = [];
+                    while (k < L.length && MD_LISTA.test(L[k].t)) itens.push(L[k++]);
+                    mdLista(itens, pai);
+                    continue;
+                }
+                // Parágrafo: notas são texto livre, então uma quebra de linha simples é preservada.
+                const p = mdNo('p', 'md-p');
+                mdInline(t.trim(), p); k++;
+                while (k < L.length && L[k].t.trim() && !mdIniciaBloco(L[k].t, L[k + 1]?.t)) { p.append(mdNo('br')); mdInline(L[k++].t.trim(), p); }
+                pai.append(p);
+            }
+        }
+
+        function mdLista(itens, pai) {
+            const pilha = [];   // { nivel, lista, ultimo }
+            itens.forEach(({ t, i }) => {
+                const [, esp, marca, resto] = MD_LISTA.exec(t);
+                const nivel = esp.replace(/\t/g, '    ').length;
+                while (pilha.length && nivel < pilha[pilha.length - 1].nivel) pilha.pop();
+                let topo = pilha[pilha.length - 1];
+                if (!topo || nivel > topo.nivel) {
+                    const lista = mdNo(/\d/.test(marca) ? 'ol' : 'ul', 'md-lista');
+                    if (topo) topo.ultimo.append(lista); else pai.append(lista);
+                    topo = { nivel, lista, ultimo: null }; pilha.push(topo);
+                }
+                const li = mdNo('li'), tarefa = /^\[( |x|X)\]\s+(.*)$/.exec(resto);
+                if (tarefa) {
+                    li.className = 'md-tarefa';
+                    const cb = mdNo('input'); cb.type = 'checkbox'; cb.checked = tarefa[1] !== ' '; cb.dataset.linha = i;
+                    const texto = mdNo('span', cb.checked ? 'md-feito' : ''); mdInline(tarefa[2], texto);
+                    li.append(cb, texto);
+                } else mdInline(resto, li);
+                topo.lista.append(li); topo.ultimo = li;
+            });
+        }
+
+        function mdRender(texto, alvo) {
+            alvo.replaceChildren();
+            mdBlocos(texto.replace(/\r/g, '').split('\n').map((t, i) => ({ t, i })), alvo);
+        }
+
+        // ---------- Texto da nota: livre, em Markdown. Renderizado quando não está em edição ----------
+        const MD_LISTA_ED = /^(\s*)([-*+]|\d+[.)])\s+(\[[ xX]\]\s+)?(.*)$/;
+        function renderTexto() {
+            const n = nota(), ed = $('note-edit'), vista = $('note-view');
+            if (ed.value !== n.texto) ed.value = n.texto;
+            const focado = document.activeElement === ed;
+            const mostrarEditor = focado || !n.texto.trim();
+            ed.classList.toggle('hidden', !mostrarEditor);
+            vista.classList.toggle('hidden', mostrarEditor);
+            $('md-dica').classList.toggle('hidden', !focado);
+            if (mostrarEditor) autoAltura(); else mdRender(n.texto, vista);
+        }
+        function autoAltura() { const ed = $('note-edit'); ed.style.height = 'auto'; ed.style.height = ed.scrollHeight + 'px'; }
+        function abrirEditor(noFim = true) {
+            const ed = $('note-edit');
+            ed.classList.remove('hidden'); $('note-view').classList.add('hidden');
+            ed.focus();
+            if (noFim) ed.setSelectionRange(ed.value.length, ed.value.length);
+        }
+        function inserirNoEditor(txt) {   // execCommand preserva o desfazer (Ctrl+Z); setRangeText é o plano B
+            const ed = $('note-edit');
+            if (!(txt ? document.execCommand('insertText', false, txt) : document.execCommand('delete'))) {
+                ed.setRangeText(txt, ed.selectionStart, ed.selectionEnd, 'end'); ed.dispatchEvent(new Event('input'));
+            }
+        }
+        function adicionarTopico() {   // botão "item de lista" do dock
+            abrirEditor();
+            const v = $('note-edit').value;
+            inserirNoEditor((!v || v.endsWith('\n') ? '' : '\n') + '- ');
+        }
+        function alternarTarefa(linha) {
+            const n = nota(), ls = n.texto.split('\n');
+            ls[linha] = ls[linha].replace(/\[( |x|X)\]/, (_, c) => c === ' ' ? '[x]' : '[ ]');
+            n.texto = ls.join('\n'); salvar(); renderTexto();
+        }
+
+        $('note-view').addEventListener('click', e => {
+            const cb = e.target.closest('input[type=checkbox]');
+            if (cb) return alternarTarefa(+cb.dataset.linha);
+            if (e.target.closest('a')) return;
+            abrirEditor();
+        });
+        $('note-edit').addEventListener('focus', renderTexto);
+        $('note-edit').addEventListener('blur', renderTexto);
+        $('note-edit').addEventListener('input', e => { nota().texto = e.target.value; salvar(); autoAltura(); });
+        $('note-edit').addEventListener('keydown', e => {
+            const ed = e.target, ini = ed.selectionStart, fim = ed.selectionEnd, v = ed.value;
+            if (e.isComposing) return;
+            const inicioLinha = v.lastIndexOf('\n', ini - 1) + 1;
+            const fimLinha = (x => x < 0 ? v.length : x)(v.indexOf('\n', ini));
+            const linha = v.slice(inicioLinha, fimLinha), item = MD_LISTA_ED.exec(linha);
+            const sel = (a, b) => ed.setSelectionRange(a, b);
+
+            if (e.key === 'Escape') { ed.blur(); return; }
+
+            // Enter dentro de uma lista continua a lista; em item vazio, encerra
+            if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && ini === fim && item
+                && ini - inicioLinha >= linha.length - item[4].length) {
+                e.preventDefault();
+                if (!item[4].trim()) { sel(inicioLinha, fimLinha); inserirNoEditor(''); return; }
+                const proximo = /\d/.test(item[2]) ? (parseInt(item[2]) + 1) + item[2].slice(-1) : item[2];
+                inserirNoEditor('\n' + item[1] + proximo + ' ' + (item[3] ? '[ ] ' : ''));
+                return;
+            }
+            // Tab / Shift+Tab recuam e avançam itens de lista
+            if (e.key === 'Tab' && item && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    const tirar = Math.min(2, item[1].length);
+                    if (tirar) { sel(inicioLinha, inicioLinha + tirar); inserirNoEditor(''); sel(Math.max(inicioLinha, ini - tirar), Math.max(inicioLinha, fim - tirar)); }
+                } else { sel(inicioLinha, inicioLinha); inserirNoEditor('  '); sel(ini + 2, fim + 2); }
+                return;
+            }
+            // Atalhos de formatação (Ctrl+B / Ctrl+I / Ctrl+K)
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+                const k = e.key.toLowerCase(), trecho = v.slice(ini, fim);
+                if (k === 'b' || k === 'i') {
+                    e.preventDefault();
+                    const marca = k === 'b' ? '**' : '*';
+                    inserirNoEditor(marca + trecho + marca); sel(ini + marca.length, ini + marca.length + trecho.length);
+                } else if (k === 'k') {
+                    e.preventDefault();
+                    inserirNoEditor(`[${trecho}](https://)`);
+                    sel(ini + trecho.length + 3, ini + trecho.length + 11);
+                }
+            }
+        });
+
+        // Texto provisório (sem locutor) da gravação em andamento ou do trabalho em curso. Só em memória: nunca vai para
+        // `nota.falas`, não é salvo e some quando o texto final chega. Os tempos são relativos à gravação; a nota os desloca.
+        let textoAoVivo = { notaId: null, falas: [] };
+        const falasAoVivo = n => textoAoVivo.notaId === n.id
+            ? textoAoVivo.falas.map(f => ({ ...f, inicio: f.inicio + (n.duracao || 0), fim: f.fim + (n.duracao || 0), aoVivo: true })) : [];
+        const temTexto = n => n.falas.length > 0 || falasAoVivo(n).length > 0;
+
+        // Trecho que um destaque cobre: texto com fundo de realce (a quebra de linha mantém o fundo em cada linha).
+        const realce = f => {
+            if (!f.coberto) return f.texto;
+            const sp = el('span', 'rounded px-1 bg-amendoa/15', f.texto);
+            sp.style.boxDecorationBreak = 'clone'; sp.style.webkitBoxDecorationBreak = 'clone';
+            return sp;
+        };
+        function paragrafo(cls, f) { const p = el('p', cls); p.append(realce(f)); return p; }
+        function linhaContinuacao(f, aoVivo) {   // resto de uma fala partida por um destaque: só o texto, alinhado ao da primeira parte
+            const row = el('div', 'flex items-start gap-3 scroll-mt-2');
+            row.dataset.inicio = f.inicio;
+            row.appendChild(el('div', 'w-7 shrink-0'));
+            row.appendChild(paragrafo('min-w-0 flex-1 text-base leading-relaxed ' + (aoVivo ? 'text-mirtilo/55' : 'text-mirtilo/80'), f));
+            return row;
+        }
+        function linhaFala(n, f) {
+            if (f.continuacao) return linhaContinuacao(f, false);
+            const row = el('div', 'flex items-start gap-3 scroll-mt-2');
+            row.dataset.inicio = f.inicio;
+            row.appendChild(avatar(n, f.locutor, 'w-7 h-7 text-[11px] mt-0.5'));
+            const col = el('div', 'min-w-0 flex-1');
+            const head = el('div', 'flex items-baseline gap-2 mb-0.5');
+            const nome = el('span', 'text-xs font-semibold', nomeDe(n, f.locutor));
+            nome.style.color = corDe(n, f.locutor);
+            nome.contentEditable = 'true';
+            nome.title = 'Clique para renomear. Use o nome de outro locutor para mesclar os dois.';
+            nome.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); nome.blur(); } };
+            nome.onblur = () => {
+                const v = nome.textContent.trim();
+                if (v === nomeDe(n, f.locutor)) return;
+                const outro = v && rotulos(n).find(r => r !== f.locutor && nomeDe(n, r).toLowerCase() === v.toLowerCase());
+                if (outro) {
+                    if (confirm(`Mesclar "${nomeDe(n, f.locutor)}" com "${nomeDe(n, outro)}"? Todas as falas passam a ser de "${nomeDe(n, outro)}".`)) mesclarLocutores(n, f.locutor, outro);
+                    else renderTranscricao();
+                    return;
+                }
+                const antigos = Nomes.nomesDoRotulo(n, f.locutor);
+                definirNomeManual(n, f.locutor, v);   // nome do usuário: nunca é sobrescrito pela IA
+                propagarNome(n, f.locutor, antigos, nomeDe(n, f.locutor));   // resumo e título automático acompanham, sem IA
+                salvar(); renderTranscricao(); renderAvatares(); renderSintese(); renderResumo();
+                sincronizarNomes(n);
+            };
+            head.appendChild(nome);
+            if (ehSugerido(n, f.locutor)) head.appendChild(marcaSugerido(n, f.locutor));
+            head.appendChild(el('span', 'text-[11px] font-mono text-mirtilo/35', fmt(f.inicio)));
+            col.appendChild(head);
+            col.appendChild(paragrafo('text-base leading-relaxed text-mirtilo/80', f));
+            row.appendChild(col);
+            return row;
+        }
+
+        // Fala provisória: sem avatar com letra/cor, sem renomear, sem chip da IA. "transcrevendo" até o locutor ser identificado.
+        function linhaAoVivo(f) {
+            if (f.continuacao) return linhaContinuacao(f, true);
+            const row = el('div', 'flex items-start gap-3 scroll-mt-2');
+            row.dataset.inicio = f.inicio;
+            const bolinha = el('div', 'w-7 h-7 mt-0.5 rounded-full shrink-0 flex items-center justify-center bg-mirtilo/10');
+            bolinha.appendChild(el('i', 'ph ph-dots-three-outline text-mirtilo/35 text-sm'));
+            row.appendChild(bolinha);
+            const col = el('div', 'min-w-0 flex-1');
+            const head = el('div', 'flex items-baseline gap-2 mb-0.5');
+            head.appendChild(el('span', 'text-xs font-medium italic text-mirtilo/40', 'transcrevendo'));
+            head.appendChild(el('span', 'text-[11px] font-mono text-mirtilo/30', fmt(f.inicio)));
+            col.appendChild(head);
+            col.appendChild(paragrafo('text-base leading-relaxed text-mirtilo/55', f));
+            row.appendChild(col);
+            return row;
+        }
+
+        // Itens da transcrição na ordem do tempo; `de` = primeiro item depois da última fala salva (a "região viva").
+        function itensTranscricao(n, vivas) {
+            const itens = intercalar(n, vivas, true);
+            let ultima = -1;
+            itens.forEach((it, i) => { if (it.fala && !it.fala.aoVivo) ultima = i; });
+            return { itens, de: ultima + 1 };
+        }
+        const noDoItem = (n, it) => it.lacuna ? linhaLacuna(it.lacuna) : it.destaque ? linhaDestaque(n, it.destaque, it.quando) : it.fala.aoVivo ? linhaAoVivo(it.fala) : linhaFala(n, it.fala);
+        // Esta nota ainda está sendo transcrita (a gravação parou, falta a versão final com locutores e IA)?
+        const transcrevendoAgora = n => estado === 'processando' && processandoId === n.id;
+        const temTranscricao = n => n.falas.length > 0 || falasAoVivo(n).length > 0 || n.destaques.length > 0 || transcrevendoAgora(n);
+        function indicadorAoVivo(vivas) {
+            const n = nota(), parada = !!n && transcrevendoAgora(n);
+            $('aovivo-estado').classList.toggle('hidden', !vivas.length && !parada);
+            $('aovivo-rotulo').textContent = emGravacao() ? 'ao vivo' : 'Transcrevendo';
+            $('aovivo-pontos').classList.toggle('hidden', emGravacao());   // três pontos discretos enquanto a versão final não chega
+        }
+
+        function renderTranscricao() {
+            const n = nota();
+            const vivas = falasAoVivo(n);
+            const noPainel = transcricaoNoPainelAntes;
+            $('transcript').classList.toggle('hidden', !temTranscricao(n) || noPainel);
+            $('layout').classList.toggle('dividido', temTranscricao(n) && !noPainel);
+            indicadorAoVivo(vivas);
+            const box = $('turns'); box.replaceChildren();
+            if (noPainel) { atualizarIdentificacao(); return; }   // desenhada no painel flutuante
+            const { itens, de } = itensTranscricao(n, vivas);
+            itens.forEach((it, i) => {
+                const no = noDoItem(n, it);
+                if (vivas.length && i >= de) no.dataset.live = '1';
+                box.appendChild(no);
+            });
+            atualizarIdentificacao();
+        }
+
+        // Atualiza só a região viva (não mexe nas falas salvas, que podem estar sendo editadas) e mantém o fim da
+        // transcrição à vista apenas se o usuário já estava perto do fim.
+        function renderAoVivo() {
+            const n = nota(); if (!n) return;
+            if (transcricaoNoPainelAntes) return renderChat();   // a transcrição está no painel flutuante
+            const vivas = falasAoVivo(n), sec = $('transcript'), box = $('turns');
+            if (!vivas.length || sec.classList.contains('hidden') || !box.children.length) return renderTranscricao();   // vazio ou primeiro texto: desenho completo
+            const d = document.documentElement;
+            const interna = sec.scrollHeight > sec.clientHeight + 2 && getComputedStyle(sec).overflowY !== 'visible';
+            const perto = interna ? sec.scrollHeight - sec.scrollTop - sec.clientHeight < 90 : d.scrollHeight - scrollY - innerHeight < 140;
+            box.querySelectorAll(':scope > [data-live]').forEach(e => e.remove());
+            const { itens, de } = itensTranscricao(n, vivas);
+            itens.slice(de).forEach(it => { const no = noDoItem(n, it); no.dataset.live = '1'; box.appendChild(no); });
+            indicadorAoVivo(vivas);
+            if (perto) { if (interna) sec.scrollTop = sec.scrollHeight; else scrollTo({ top: d.scrollHeight, behavior: 'instant' }); }
+        }
+
+        // Troca o texto provisório de uma nota (falas relativas à gravação). Só redesenha se mudou.
+        function definirTextoAoVivo(notaId, falas) {
+            const novas = (falas || []).map(f => ({ inicio: f.inicio, fim: f.fim, texto: f.texto }));
+            if (textoAoVivo.notaId === notaId && JSON.stringify(textoAoVivo.falas) === JSON.stringify(novas)) return;
+            if (!novas.length && textoAoVivo.notaId !== notaId) return;
+            textoAoVivo = { notaId: novas.length ? notaId : null, falas: novas };
+            if (nota() && nota().id === notaId) novas.length ? renderAoVivo() : renderTranscricao();
+        }
+        function limparTextoAoVivo() {
+            if (textoAoVivo.notaId == null) return;
+            const id = textoAoVivo.notaId;
+            textoAoVivo = { notaId: null, falas: [] };
+            if (nota() && nota().id === id) renderTranscricao();
+        }
+
+        // Aviso discreto de trecho que o reconhecimento pode ter deixado incompleto (só na tela; não vai para o .txt/.srt nem para o resumo).
+        function linhaLacuna(l) {
+            const dica = l.estado === 'parcial' ? 'Só parte da fala deste trecho foi recuperada.' : 'Havia fala neste trecho, mas não foi possível transcrevê-la.';
+            const row = el('div', 'flex items-center gap-2 text-xs text-amendoa/90 px-1 py-0.5 select-none');
+            row.dataset.lacuna = l.estado; row.title = dica;
+            row.appendChild(el('i', 'ph ph-warning text-sm shrink-0'));
+            row.appendChild(el('span', 'font-mono text-[11px]', `${fmt(l.inicio)}-${fmt(l.fim)}`));
+            row.appendChild(el('span', null, 'trecho possivelmente incompleto'));
+            row.appendChild(el('span', 'flex-1 border-t border-dashed border-amendoa/30'));
+            return row;
+        }
+
+        // Destaque do usuário dentro da transcrição: texto editável no lugar (apagar remove) e botão de remover.
+        function linhaDestaque(n, d, quando) {   // quando: hora a mostrar (a do trecho coberto); sem ela, a posição do destaque
+            const row = el('div', 'flex items-start gap-2.5 scroll-mt-2 rounded-2xl bg-amendoa/10 border border-amendoa/20 px-3.5 py-2.5');
+            row.dataset.inicio = quando ?? posDe(d); row.dataset.destaque = d.id;
+            row.appendChild(el('i', 'ph-fill ph-push-pin text-amendoa text-base mt-0.5 shrink-0'));
+            const col = el('div', 'min-w-0 flex-1');
+            const head = el('div', 'flex items-baseline gap-2 mb-0.5');
+            head.appendChild(el('span', 'text-[11px] font-semibold uppercase tracking-wider text-amendoa', 'Destaque'));
+            head.appendChild(el('span', 'text-[11px] font-mono text-mirtilo/35', fmt(quando ?? posDe(d))));
+            col.appendChild(head);
+            const texto = el('p', 'text-base leading-relaxed font-medium text-mirtilo whitespace-pre-wrap break-words', d.texto);
+            texto.contentEditable = 'true';
+            texto.title = 'Clique para editar. Apague o texto para remover o destaque.';
+            texto.onkeydown = e => {
+                if (e.key === 'Enter') { e.preventDefault(); texto.blur(); }
+                if (e.key === 'Escape') { texto.textContent = d.texto; texto.blur(); }
+            };
+            texto.onpaste = e => { e.preventDefault(); document.execCommand('insertText', false, (e.clipboardData?.getData('text/plain') || '').replace(/\s+/g, ' ')); };
+            texto.onblur = () => {
+                const v = texto.textContent.replace(/\s+/g, ' ').trim().slice(0, DESTAQUE_MAX);
+                if (v === d.texto) return;
+                if (!v) return removerDestaque(n, d.id);
+                d.texto = v; salvar(); renderTranscricao(); renderChat();
+            };
+            col.appendChild(texto);
+            row.appendChild(col);
+            const x = el('button', 'w-6 h-6 shrink-0 rounded-full flex items-center justify-center text-mirtilo/30 hover:text-framboesa hover:bg-framboesa/10 transition-colors');
+            x.appendChild(el('i', 'ph ph-x text-sm'));
+            x.title = 'Remover destaque';
+            x.onclick = () => removerDestaque(n, d.id);
+            row.appendChild(x);
+            return row;
+        }
+        function removerDestaque(n, id) {
+            n.destaques = n.destaques.filter(d => d.id !== id);
+            salvar(); renderTranscricao(); renderChat();
+        }
+
+        // ---------- Destaques: chat durante a gravação ----------
+        // Cada mensagem guarda o instante em que COMEÇOU a ser escrita (primeira tecla do rascunho): quem digita costuma fazê-lo
+        // alguns segundos depois do que quis marcar. O instante é absoluto na nota: duração das gravações anteriores + tempo gravado
+        // desta (sem as pausas). Limite conhecido: se uma gravação falhar e outra for gravada na nota antes de tentar de novo, as
+        // marcas da que falhou ficam deslocadas.
+        const DESTAQUE_MAX = 300;
+        let tempoRascunho = null;   // instante da primeira tecla do rascunho atual (null = rascunho vazio)
+        const tempoAgora = () => (nota().duracao || 0) + decorrido();
+        // O chat flutuante existe só enquanto se grava (gravando ou em pausa). Nesse tempo a transcrição vive nele, junto com os
+        // destaques, e o cartão da página some. Ao parar, o painel fecha e a transcrição (ainda provisória) aparece na página.
+        const transcricaoNoPainel = () => emGravacao();
+        let transcricaoNoPainelAntes = false;
+        let chatDesde = 0;   // instante (absoluto na nota) em que a gravação atual começou: o feed do chat mostra só dali em diante
+
+        // Linhas do feed, sempre em três colunas (hora | texto | remover). A fala limita o texto a 2 linhas (3 na mais recente) e só
+        // mostra o nome do locutor quando ele muda; o destaque é uma faixa com pino, bem diferente da fala e de uma linha só quando cabe.
+        const horaChat = t => el('span', 'font-mono text-[10px] leading-5 text-mirtilo/40 tabular-nums', fmt(t));
+        function linhaChatFala(n, f, nomear, recente) {
+            const row = el('div', 'chat-linha');
+            row.appendChild(horaChat(f.inicio));
+            const p = el('p', 'text-[13px] leading-5 ' + (recente ? 'line-clamp-3 ' : 'line-clamp-2 ') + (f.aoVivo ? 'italic text-mirtilo/55' : 'text-mirtilo/80'));
+            if (nomear && !f.aoVivo && f.locutor) { const nome = el('span', 'font-semibold mr-1.5', nomeDe(n, f.locutor)); nome.style.color = corDe(n, f.locutor); p.appendChild(nome); }
+            p.append(realce(f));
+            row.appendChild(p);
+            return row;
+        }
+        function linhaChatDestaque(n, d, quando) {
+            const row = el('div', 'chat-linha');
+            row.appendChild(horaChat(quando ?? posDe(d)));
+            const faixa = el('p', 'flex items-start gap-1.5 rounded-lg bg-amendoa/15 px-2 text-[13px] leading-5 font-medium text-mirtilo min-w-0');
+            faixa.appendChild(el('i', 'ph-fill ph-push-pin text-amendoa text-xs mt-[5px] shrink-0'));
+            faixa.appendChild(el('span', 'min-w-0 line-clamp-2 break-words', d.texto));
+            row.appendChild(faixa);
+            const x = el('button', 'w-5 h-5 mt-px rounded-full flex items-center justify-center text-mirtilo/30 hover:text-framboesa hover:bg-framboesa/10 transition-colors');
+            x.appendChild(el('i', 'ph ph-x text-[11px]'));
+            x.title = 'Remover destaque'; x.setAttribute('aria-label', 'Remover destaque');
+            x.onclick = () => removerDestaque(n, d.id);
+            row.appendChild(x);
+            return row;
+        }
+        // Comando de identificação ("Marina que está falando"): não é destaque. Fica guardado até a gravação terminar, quando o locutor
+        // daquele instante é conhecido, e então dá o nome a ele em todas as falas.
+        function linhaChatIdent(n, i) {
+            const row = el('div', 'chat-linha');
+            row.appendChild(horaChat(i.t));
+            const faixa = el('p', 'flex items-start gap-1.5 rounded-lg bg-mirtilo/5 px-2 text-[13px] leading-5 font-medium text-mirtilo min-w-0');
+            faixa.appendChild(el('i', 'ph ph-user-focus text-amendoa text-xs mt-[5px] shrink-0'));
+            faixa.appendChild(el('span', 'min-w-0 line-clamp-2 break-words', i.estado === 'aplicada' ? `${i.nome} identificado` : `Quem fala: ${i.nome}`));
+            if (i.estado !== 'aplicada') faixa.appendChild(el('span', 'ml-auto shrink-0 text-[11px] font-normal text-mirtilo/45', 'vale ao parar'));
+            row.appendChild(faixa);
+            const x = el('button', 'w-5 h-5 mt-px rounded-full flex items-center justify-center text-mirtilo/30 hover:text-framboesa hover:bg-framboesa/10 transition-colors');
+            x.appendChild(el('i', 'ph ph-x text-[11px]'));
+            x.title = 'Remover identificação'; x.setAttribute('aria-label', 'Remover identificação');
+            x.onclick = () => { n.identificacoes = (n.identificacoes || []).filter(o => o.id !== i.id); salvar(); renderChat(); };
+            row.appendChild(x);
+            return row;
+        }
+        const FEED_ITENS = 24;   // só o fim da conversa é desenhado: o painel mostra 10 linhas
+        const opacidadeDoFeed = k => Math.max(0.3, 1 - k * 0.09);   // k = posição contando do mais novo (0)
+
+        function renderChat() {
+            const n = nota(); if (!n) return;
+            const aberto = emGravacao();
+            $('chat').classList.toggle('hidden', !aberto);
+            document.body.classList.toggle('chat-aberto', aberto);
+            const total = n.destaques.length;
+            const noPainel = aberto && transcricaoNoPainel();
+            if (noPainel !== transcricaoNoPainelAntes) { transcricaoNoPainelAntes = noPainel; renderTranscricao(); renderResumo(); }   // a transcrição troca de lugar
+            if (!aberto) return;
+            const lista = $('chat-lista');
+            // Cada gravação começa com o chat limpo: só entra o que é desta gravação (os instantes são absolutos na nota).
+            const tempoDoItem = it => it.destaque ? posDe(it.destaque) : it.fala.inicio;
+            const todos = intercalar(n, falasAoVivo(n)).filter(it => tempoDoItem(it) >= chatDesde - 0.001);
+            (n.identificacoes || []).filter(i => i.t >= chatDesde - 0.001 && i.estado !== 'ignorada').forEach(i => {   // comandos de identificação, no instante em que foram digitados
+                const k = todos.findIndex(it => tempoDoItem(it) > i.t);
+                todos.splice(k < 0 ? todos.length : k, 0, { ident: i });
+            });
+            const itens = todos.slice(-FEED_ITENS);
+            lista.replaceChildren();
+            let locutorAnterior = null;
+            itens.forEach((it, i) => {
+                if (it.ident) { lista.appendChild(linhaChatIdent(n, it.ident)); return; }
+                if (it.destaque) { lista.appendChild(linhaChatDestaque(n, it.destaque, it.quando)); return; }
+                lista.appendChild(linhaChatFala(n, it.fala, it.fala.locutor !== locutorAnterior, i === itens.length - 1));
+                locutorAnterior = it.fala.locutor;
+            });
+            lista.classList.toggle('hidden', !itens.length);
+            $('chat-vazio').classList.toggle('hidden', !!itens.length);
+            // Mais de 10 linhas: tira os mais antigos inteiros (medindo), depois apaga em degradê os que ficaram.
+            const maximo = parseFloat(getComputedStyle(lista).maxHeight) || Infinity, folga = parseFloat(getComputedStyle(lista).rowGap) || 0;
+            const altura = () => [...lista.children].reduce((h, c) => h + c.offsetHeight + folga, -folga);
+            while (lista.children.length > 1 && altura() > maximo + 0.5) lista.firstElementChild.remove();
+            [...lista.children].forEach((c, i, todos) => { c.style.opacity = opacidadeDoFeed(todos.length - 1 - i); });
+            const ativo = emGravacao(), inp = $('chat-input');
+            inp.disabled = !ativo;
+            const estreito = matchMedia('(max-width: 480px)').matches;   // o campo tem uma linha só: placeholder curto no celular
+            inp.placeholder = estado === 'pausado' ? (estreito ? 'Em pausa: marca este instante' : 'Em pausa: o destaque fica marcado neste instante')
+                : (estreito ? 'Escreva um destaque' : 'Escreva um destaque e tecle Enter');
+            $('chat-enviar').disabled = !ativo || !inp.value.trim();
+            $('chat-tempo').textContent = total ? String(total) : '';
+        }
+
+        let enviandoChat = false;
+        // Pergunta ao servidor se a frase é um comando de identificação (regra de texto, sem rede; a IA só quando ligada e a regra não entendeu).
+        async function comandoDoChat(texto) {
+            const ctl = new AbortController(), tempo = setTimeout(() => ctl.abort(), 7000);
+            try {
+                const r = await fetch('/api/destaque-comando', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal,
+                    body: JSON.stringify({ texto, ia: iaPode() }) });
+                return await r.json();
+            } catch { return null; }   // servidor fora ou lento: vale como destaque comum
+            finally { clearTimeout(tempo); }
+        }
+        async function enviarDestaque() {
+            if (!emGravacao() || enviandoChat) return;
+            const inp = $('chat-input'), texto = inp.value.trim().slice(0, DESTAQUE_MAX);
+            if (!texto) return;
+            const n = nota();
+            const t = tempoRascunho ?? tempoAgora();
+            const ancora = Math.max(chatDesde, t - JANELA_ANTES_S);   // cobre as falas dos 10 s anteriores (sem entrar na gravação anterior)
+            const id = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+            tempoRascunho = null; inp.value = ''; inp.style.height = '';
+            enviandoChat = true;
+            const cmd = await comandoDoChat(texto);
+            enviandoChat = false;
+            if (cmd && cmd.comando && cmd.nome) (n.identificacoes = n.identificacoes || []).push({ id, t, nome: cmd.nome, quando: cmd.quando, ...(cmd.rotulo ? { rotulo: cmd.rotulo } : {}), texto, estado: 'pendente', em: Date.now() });
+            else n.destaques.push({ id, t, ancora, cobre: { inicio: ancora, fim: t }, texto, em: Date.now() });
+            salvar(); renderChat();
+            if (n.falas.length || falasAoVivo(n).length) renderTranscricao();   // a transcrição (salva ou ao vivo) já está na tela
+            inp.focus({ preventScroll: true });
+        }
+
+        function abrirChat() {   // uma gravação começou: abre o painel e foca o campo (no celular o teclado só abre ao tocar)
+            tempoRascunho = null; $('chat-input').value = ''; $('chat-input').style.height = '';
+            chatDesde = nota().duracao || 0;   // nova gravação: o chat começa limpo
+            renderChat();
+            if (!matchMedia('(pointer: coarse)').matches) $('chat-input').focus({ preventScroll: true });
+        }
+
+        // No celular o teclado cobre a parte de baixo do layout (iOS não o encolhe): ergue o dock e o painel pela altura dele.
+        if (window.visualViewport) {
+            const vv = window.visualViewport;
+            const ajustarTeclado = () => document.documentElement.style.setProperty('--kb', Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) + 'px');
+            vv.addEventListener('resize', ajustarTeclado); vv.addEventListener('scroll', ajustarTeclado);
+        }
+
+        $('chat-input').addEventListener('input', e => {
+            const inp = e.target;
+            inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 112) + 'px'; inp.style.overflowY = inp.scrollHeight > 112 ? 'auto' : 'hidden';
+            if (!inp.value.trim()) tempoRascunho = null;
+            else if (tempoRascunho == null && emGravacao()) tempoRascunho = tempoAgora();
+            $('chat-enviar').disabled = !emGravacao() || !inp.value.trim();
+        });
+        $('chat-input').addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); enviarDestaque(); }
+        });
+
+        // A diarização pode dividir uma pessoa em vários locutores: renomear um deles com o nome do outro os mescla.
+        function mesclarLocutores(n, de, para) {
+            const antigos = Nomes.nomesDoRotulo(n, de);
+            n.falas.forEach(f => { if (f.locutor === de) f.locutor = para; });
+            delete n.nomes[de]; delete n.sugestoes?.[de];
+            propagarNome(n, de, antigos, nomeDe(n, para));   // o resumo passa a falar do locutor que ficou
+            n.falas = n.falas.reduce((acc, f) => {
+                const ant = acc[acc.length - 1];
+                if (ant && ant.locutor === f.locutor && f.inicio - ant.fim < 2) { ant.texto += ' ' + f.texto; ant.fim = f.fim; }
+                else acc.push(f);
+                return acc;
+            }, []);
+            salvar(); renderizar(); aviso('Locutores mesclados');
+        }
+
+        // Rola a transcrição até a fala mais próxima do horário (capítulos do resumo).
+        function irParaFala(seg) {
+            const linhas = [...$('turns').children];
+            const alvo = linhas.find(r => +r.dataset.inicio >= seg - 0.5) || linhas[linhas.length - 1];
+            if (!alvo) return;
+            alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            alvo.classList.add('bg-amendoa/15', 'rounded-xl');
+            setTimeout(() => alvo.classList.remove('bg-amendoa/15', 'rounded-xl'), 1600);
+        }
+
+        function renderAvatares() {
+            const n = nota(), box = $('pill-avatars'); box.replaceChildren();
+            const r = rotulos(n);
+            $('pill-sep').classList.toggle('hidden', !r.length);
+            r.slice(0, 5).forEach(l => box.appendChild(avatar(n, l, 'w-4 h-4 text-[8px]', true)));
+        }
+
+        function renderSintese() {
+            const n = nota(), chips = $('synth-chips'), bars = $('synth-bars');
+            chips.replaceChildren(); bars.replaceChildren();
+            if (!n.falas.length) return;
+            const r = rotulos(n);
+            const tempo = {};
+            n.falas.forEach(f => tempo[f.locutor] = (tempo[f.locutor] || 0) + (f.fim - f.inicio));
+            const total = Object.values(tempo).reduce((a, b) => a + b, 0) || 1;
+            const dur = n.duracao || n.falas.reduce((m, f) => Math.max(m, f.fim), 0);
+            const mk = (icone, texto, cls, cor) => {
+                const c = el('div', `px-3 py-1.5 rounded-full inline-flex items-center gap-2 ${cls}`);
+                c.appendChild(el('i', `ph-fill ${icone} text-base ${cor}`));
+                c.appendChild(el('span', 'text-xs font-medium', texto));
+                chips.appendChild(c);
+            };
+            const base = 'bg-aveia/70 border border-amendoa/15';
+            mk('ph-clock', fmt(dur), base, 'text-amendoa');
+            mk('ph-users', `${r.length} ${r.length === 1 ? 'locutor' : 'locutores'}`, base, 'text-amendoa');
+            mk('ph-chat-circle-text', `${n.falas.length} falas`, base, 'text-amendoa');
+            if (n.motor) mk(n.motor === 'local' ? 'ph-lock-simple' : 'ph-cloud', nomeMotor(n.motor), base, 'text-amendoa');
+            r.sort((a, b) => tempo[b] - tempo[a]).forEach(l => {
+                const pct = Math.round(tempo[l] / total * 100);
+                const row = el('div', 'flex items-center gap-3');
+                row.appendChild(avatar(n, l, 'w-5 h-5 text-[9px]'));
+                row.appendChild(el('span', 'w-24 truncate text-xs font-medium', nomeDe(n, l)));
+                const trilho = el('div', 'flex-1 h-1.5 rounded-full bg-amendoa/15 overflow-hidden');
+                const barra = el('div', 'h-full rounded-full');
+                barra.style.width = pct + '%'; barra.style.background = corDe(n, l);
+                trilho.appendChild(barra); row.appendChild(trilho);
+                row.appendChild(el('span', 'w-9 text-right text-[11px] font-mono text-mirtilo/50', pct + '%'));
+                bars.appendChild(row);
+            });
+        }
+
+        // ---------- Menu lateral (grupos + arrastar e soltar) ----------
+        let arrasto = null;        // { tipo: 'nota' | 'grupo', id }
+        let renomearId = null;     // grupo recém-criado que abre em modo de edição
+
+        function aplicarMenu() {
+            const aberto = state.menu;
+            $('menu').classList.toggle('-translate-x-[120%]', !aberto);
+            $('menu').classList.toggle('opacity-0', !aberto);
+            $('menu').classList.toggle('pointer-events-none', !aberto);
+            $('menu-fundo').classList.toggle('hidden', !aberto);
+            $('menu-aba').classList.toggle('hidden', aberto);
+            document.querySelectorAll('body, footer, #chat').forEach(e => e.classList.toggle('lg:pl-72', aberto));
+        }
+        function alternarMenu() { state.menu = !state.menu; salvar(); aplicarMenu(); }
+        document.addEventListener('keydown', e => {
+            if (e.target.id === 'note-edit' || e.target.id === 'chat-input') return;   // no texto da nota, Ctrl+B é negrito
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); alternarMenu(); }
+        });
+
+        function mover(id, grupoId, antesDeId) {   // antesDeId nulo = fim do grupo
+            const i = state.notes.findIndex(n => n.id === id); if (i < 0 || antesDeId === id) return;
+            const [n] = state.notes.splice(i, 1);
+            n.grupo = grupoId;
+            let j;
+            if (antesDeId) j = state.notes.findIndex(x => x.id === antesDeId);
+            else { j = -1; state.notes.forEach((x, k) => { if (x.grupo === grupoId) j = k; }); j = j < 0 ? -1 : j + 1; }
+            state.notes.splice(j < 0 ? state.notes.length : j, 0, n);
+            salvar(); renderMenu();
+        }
+        function moverGrupo(id, antesDeId) {
+            const i = state.groups.findIndex(g => g.id === id); if (i < 0 || antesDeId === id) return;
+            const [g] = state.groups.splice(i, 1);
+            const j = antesDeId ? state.groups.findIndex(x => x.id === antesDeId) : -1;
+            state.groups.splice(j < 0 ? state.groups.length : j, 0, g);
+            salvar(); renderMenu();
+        }
+        function proximaNota(id) {
+            const n = state.notes.find(x => x.id === id);
+            const lista = state.notes.filter(x => x.grupo === n.grupo);
+            return lista[lista.indexOf(n) + 1]?.id || null;
+        }
+        function proximoGrupo(id) { return state.groups[state.groups.findIndex(g => g.id === id) + 1]?.id || null; }
+
+        function novoGrupo() {
+            const g = { id: 'g' + Date.now(), nome: 'Novo grupo', aberto: true };
+            state.groups.push(g); renomearId = g.id;
+            if (!state.menu) { state.menu = true; aplicarMenu(); }
+            salvar(); renderMenu();
+        }
+        function excluirGrupo(id) {
+            if (state.groups.length === 1) return aviso('Mantenha ao menos um grupo', true);
+            const destino = state.groups.find(g => g.id !== id);
+            state.notes.forEach(n => { if (n.grupo === id) n.grupo = destino.id; });
+            state.groups = state.groups.filter(g => g.id !== id);
+            salvar(); renderMenu();
+        }
+
+        // Marca onde o item será solto.
+        function marcar(alvo, pos) {
+            limparMarcas();
+            alvo.classList.add('drop-' + pos);
+        }
+        function limparMarcas() {
+            document.querySelectorAll('.drop-antes, .drop-depois, .drop-dentro').forEach(e => e.classList.remove('drop-antes', 'drop-depois', 'drop-dentro'));
+        }
+        const metade = (e, alvo) => { const r = alvo.getBoundingClientRect(); return e.clientY < r.top + r.height / 2 ? 'antes' : 'depois'; };
+        function iniciarArrasto(e, tipo, id, elemento) {
+            arrasto = { tipo, id };
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', id);
+            setTimeout(() => elemento.classList.add('opacity-40'), 0);
+        }
+        function fimArrasto() { arrasto = null; limparMarcas(); renderMenu(); }
+
+        function renderMenu() {
+            const nav = $('menu-lista'); nav.replaceChildren();
+            state.groups.forEach(g => {
+                const bloco = el('div');
+                const notas = state.notes.filter(n => n.grupo === g.id);
+
+                // Cabeçalho do grupo
+                const head = el('div', 'group flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-xs font-semibold text-mirtilo/70 hover:bg-mirtilo/5 cursor-pointer select-none');
+                head.draggable = true; head.dataset.k = 'g' + g.id;
+                head.appendChild(el('i', 'ph-bold ph-caret-right text-[10px] transition-transform ' + (g.aberto ? 'rotate-90' : '')));
+                head.appendChild(el('i', 'ph-fill ph-folder text-amendoa text-sm'));
+                const nome = el('span', 'flex-1 truncate rounded px-0.5', g.nome);
+                head.appendChild(nome);
+                head.appendChild(el('span', 'text-[10px] font-mono text-mirtilo/35', String(notas.length)));
+                const lixo = el('button', 'w-5 h-5 rounded-md hidden group-hover:flex items-center justify-center text-mirtilo/40 hover:text-framboesa hover:bg-framboesa/10');
+                lixo.title = 'Excluir grupo (as notas são mantidas)';
+                lixo.appendChild(el('i', 'ph ph-x text-xs'));
+                lixo.onclick = e => { e.stopPropagation(); excluirGrupo(g.id); };
+                head.appendChild(lixo);
+
+                head.onclick = () => { if (nome.isContentEditable) return; g.aberto = !g.aberto; salvar(); renderMenu(); };
+                const renomear = () => {
+                    const antes = g.nome;
+                    head.draggable = false; nome.contentEditable = 'true'; nome.classList.add('bg-white', 'outline-none');
+                    nome.focus(); getSelection().selectAllChildren(nome);
+                    const fechar = ok => {
+                        const v = nome.textContent.trim();
+                        g.nome = ok && v ? v : antes; salvar(); renderMenu();
+                    };
+                    nome.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); fechar(true); } if (e.key === 'Escape') fechar(false); };
+                    nome.onblur = () => fechar(true);
+                };
+                nome.ondblclick = e => { e.stopPropagation(); renomear(); };
+
+                head.ondragstart = e => iniciarArrasto(e, 'grupo', g.id, head);
+                head.ondragend = fimArrasto;
+                head.ondragover = e => {
+                    if (!arrasto) return;
+                    e.preventDefault();
+                    if (arrasto.tipo === 'grupo') { if (arrasto.id !== g.id) marcar(head, metade(e, head)); }
+                    else marcar(head, 'dentro');
+                };
+                head.ondragleave = () => head.classList.remove('drop-antes', 'drop-depois', 'drop-dentro');
+                head.ondrop = e => {
+                    e.preventDefault();
+                    if (!arrasto) return;
+                    if (arrasto.tipo === 'grupo') {
+                        if (arrasto.id !== g.id) moverGrupo(arrasto.id, metade(e, head) === 'antes' ? g.id : proximoGrupo(g.id));
+                    } else { g.aberto = true; mover(arrasto.id, g.id, null); }
+                    arrasto = null; limparMarcas();
+                };
+                bloco.appendChild(head);
+
+                // Notas do grupo
+                if (g.aberto) {
+                    if (!notas.length) {
+                        const vazio = el('div', 'pl-8 pr-2 py-1.5 text-[11px] text-mirtilo/35 italic', 'Arraste notas para cá');
+                        vazio.dataset.k = 'v' + g.id;
+                        vazio.ondragover = e => { if (arrasto?.tipo === 'nota') { e.preventDefault(); marcar(vazio, 'dentro'); } };
+                        vazio.ondragleave = () => vazio.classList.remove('drop-dentro');
+                        vazio.ondrop = e => { e.preventDefault(); if (arrasto?.tipo === 'nota') mover(arrasto.id, g.id, null); arrasto = null; limparMarcas(); };
+                        bloco.appendChild(vazio);
+                    }
+                    notas.forEach(n => {
+                        const ativo = n.id === state.atual;
+                        const item = el('div', 'group flex items-center gap-2 pl-7 pr-2 py-1.5 rounded-xl text-sm cursor-pointer transition-colors ' +
+                            (ativo ? 'bg-amendoa/15 text-mirtilo font-medium' : 'text-mirtilo/70 hover:bg-mirtilo/5'));
+                        item.draggable = true; item.dataset.k = 'n' + n.id;
+                        item.appendChild(el('i', 'ph-fill text-xs text-amendoa shrink-0 ' + (n.falas.length ? 'ph-waveform' : 'ph-note')));
+                        item.appendChild(el('span', 'flex-1 truncate' + (tituloNovo.has(n.id) ? ' titulo-novo' : ''), n.titulo.trim() || 'Nova nota'));
+                        const apagar = el('button', 'w-5 h-5 rounded-md hidden group-hover:flex items-center justify-center shrink-0 text-mirtilo/40 hover:text-framboesa hover:bg-framboesa/10');
+                        apagar.title = 'Excluir nota';
+                        apagar.appendChild(el('i', 'ph ph-trash text-xs'));
+                        apagar.onclick = e => { e.stopPropagation(); excluirNota(n.id); };
+                        item.appendChild(apagar);
+                        item.onclick = () => {
+                            if (estado !== 'ocioso' && n.id !== state.atual) return aviso('Aguarde a gravação terminar', true);
+                            state.atual = n.id; salvar(); renderizar();
+                            if (innerWidth < 1024) { state.menu = false; aplicarMenu(); }
+                        };
+                        item.ondragstart = e => { e.stopPropagation(); iniciarArrasto(e, 'nota', n.id, item); };
+                        item.ondragend = fimArrasto;
+                        item.ondragover = e => {
+                            if (arrasto?.tipo !== 'nota' || arrasto.id === n.id) return;
+                            e.preventDefault(); e.stopPropagation(); marcar(item, metade(e, item));
+                        };
+                        item.ondragleave = () => item.classList.remove('drop-antes', 'drop-depois');
+                        item.ondrop = e => {
+                            e.preventDefault(); e.stopPropagation();
+                            if (arrasto?.tipo === 'nota' && arrasto.id !== n.id)
+                                mover(arrasto.id, g.id, metade(e, item) === 'antes' ? n.id : proximaNota(n.id));
+                            arrasto = null; limparMarcas();
+                        };
+                        bloco.appendChild(item);
+                    });
+                }
+                nav.appendChild(bloco);
+                if (renomearId === g.id) { renomearId = null; setTimeout(renomear, 0); }
+            });
+        }
+
+        // ---------- Edição ----------
+        // Qualquer edição manual do título vale para sempre: a IA nunca mais mexe nele (tituloEditado) e descarta o que estiver pendente.
+        $('note-title').addEventListener('input', e => { const n = nota(); n.titulo = e.target.innerText.replace(/\n/g, ' '); n.tituloEditado = true; n.tituloAuto = false; salvar(); renderMenu(); });
+        $('note-title').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); abrirEditor(false); } });
+        function novaNota() { if (estado !== 'ocioso') return aviso('Aguarde a gravação terminar', true); criarNota(); salvar(); renderizar(); $('note-title').focus(); }
+        function excluirNota(id = state.atual) {
+            const alvo = state.notes.find(n => n.id === id); if (!alvo) return;
+            if (estado !== 'ocioso' && id === state.atual) return aviso('Aguarde a gravação terminar', true);
+            const arquivosDisco = alvo.base ? '\n\nO áudio, a transcrição e a análise dela na pasta gravacoes/ também serão apagados.' : '';
+            if (!confirm(`Excluir a nota "${alvo.titulo.trim() || 'Nova nota'}"?${arquivosDisco}`)) return;
+            const i = state.notes.indexOf(alvo);
+            state.notes.splice(i, 1);
+            if (alvo.base) fetch('/api/arquivos/' + encodeURIComponent(alvo.base), { method: 'DELETE' }).catch(() => aviso('Não consegui apagar os arquivos da nota em gravacoes/', true));
+            if (!state.notes.length) criarNota();
+            else if (id === state.atual) state.atual = (state.notes[i] || state.notes[i - 1]).id;
+            salvar(); renderizar(); $('ajustes').classList.add('hidden');
+        }
+
+        // ---------- Ajustes ----------
+        function alternarAjustes(e) {
+            e.stopPropagation();
+            $('ajustes').classList.toggle('hidden');
+            listarMicrofones();
+            carregarMotores();
+            carregarIA();   // atualiza o uso mensal (interruptor da IA automática)
+        }
+
+        // Motor de transcrição: local por padrão (privado). Groq é opt-in e ENVIA O ÁUDIO à nuvem.
+        let motoresInfo = null;
+        function mostrarMotor() {
+            const av = $('motor-aviso');
+            let t = '';
+            if ($('cfg-motor').value === 'groq') {
+                t = 'O áudio das gravações é enviado à Groq (EUA) para transcrever. Se a cota gratuita acabar ou houver falha, o trecho restante é transcrito localmente.';
+                if (motoresInfo && motoresInfo.groq_uso_hora_s) t += ` Enviado na última hora: ~${Math.round(motoresInfo.groq_uso_hora_s / 60)} de ~${Math.round(motoresInfo.groq_limite_hora_s / 60)} min.`;
+            }
+            av.textContent = t; av.classList.toggle('hidden', !t);
+        }
+        async function carregarMotores() {
+            try { motoresInfo = await (await fetch('/api/motores')).json(); } catch { return; }
+            const g = motoresInfo.motores.find(x => x.id === 'groq');
+            const opt = $('cfg-motor').querySelector('option[value=groq]');
+            opt.disabled = !g.disponivel;
+            opt.textContent = 'Groq · nuvem (envia o áudio)' + (g.disponivel ? '' : ' · sem GROQ_API_KEY no .env');
+            if (!state.cfg.motor) state.cfg.motor = motoresInfo.padrao;
+            if (state.cfg.motor === 'groq' && !g.disponivel) state.cfg.motor = 'local';
+            $('cfg-motor').value = state.cfg.motor;
+            mostrarMotor(); mostrarSelo();
+        }
+        $('cfg-motor').addEventListener('change', () => {
+            if ($('cfg-motor').value === 'groq' && !confirm('Usar a Groq (nuvem)?\n\nO áudio das gravações sai deste computador e vai para a Groq (EUA). A política da sua empresa pode proibir isso. Com o motor local nada sai daqui.\n\nContinuar?')) $('cfg-motor').value = 'local';
+            state.cfg.motor = $('cfg-motor').value; salvar(); mostrarMotor(); mostrarSelo();
+        });
+        // Selo fixo no cabeçalho: onde a transcrição acontece.
+        function mostrarSelo() {
+            const nuvem = state.cfg.motor === 'groq';
+            $('selo-motor-rotulo').textContent = nuvem ? 'Nuvem' : 'Local';
+            $('selo-motor-icone').className = 'ph text-xs ' + (nuvem ? 'ph-cloud' : 'ph-desktop');
+            $('selo-motor').className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ' + (nuvem ? 'bg-framboesa/10 text-framboesa' : 'bg-mirtilo/5 text-mirtilo/60');
+            $('selo-motor').title = nuvem ? 'Transcrição na nuvem: o áudio das gravações é enviado à Groq.' : 'Transcrição local: o áudio é transcrito neste computador e não sai dele.';
+        }
+        mostrarSelo();
+        carregarMotores();
+
+        // Lista os microfones. Os nomes só aparecem depois que o navegador libera o acesso.
+        // (lógica em static/mic.js: rótulos, dispositivo salvo que sumiu, erros em pt-BR)
+        async function listarMicrofones() {
+            await Mic.listar($('cfg-mic'), state.cfg);
+            salvar();
+        }
+        $('cfg-mic').addEventListener('change', e => { state.cfg.mic = e.target.value; salvar(); });
+        Mic.usarAviso(aviso);
+        Mic.iniciarAjustes(state.cfg, salvar);
+        navigator.mediaDevices?.addEventListener('devicechange', () => { if (!$('ajustes').classList.contains('hidden')) listarMicrofones(); });
+        document.addEventListener('click', () => $('ajustes').classList.add('hidden'));
+        [['cfg-idioma', 'idioma'], ['cfg-locutores', 'locutores']].forEach(([id, k]) => {
+            $(id).value = state.cfg[k] || (k === 'locutores' ? '' : PADRAO[k]);
+            $(id).addEventListener('change', () => { state.cfg[k] = k === 'locutores' ? (parseInt($(id).value) || 0) : $(id).value; salvar(); });
+        });
+
+        $('cfg-glossario').value = state.cfg.glossario || '';   // ajustes antigos não têm o campo
+        $('cfg-glossario').addEventListener('input', e => { state.cfg.glossario = e.target.value; salvar(); });
+
+        $('cfg-aovivo').checked = state.cfg.aoVivo !== false;
+        $('cfg-aovivo').addEventListener('change', e => { state.cfg.aoVivo = e.target.checked; salvar(); });
+
+        // Áudio do computador (getDisplayMedia com áudio: Chrome/Edge). Sem a API, o ajuste fica desligado e explica por quê.
+        const sistemaSuportado = !!navigator.mediaDevices?.getDisplayMedia;
+        $('cfg-audiosistema').checked = !!state.cfg.audioSistema && sistemaSuportado;
+        if (!sistemaSuportado) {
+            $('cfg-audiosistema').disabled = true;
+            $('sistema-motivo').classList.remove('hidden');
+            $('cfg-audiosistema').closest('label').classList.add('opacity-60');
+        }
+        // Aviso legal ao ligar o áudio do computador: confirmação na primeira vez (guardada neste navegador). Fica aqui, e não
+        // na hora de gravar, porque o seletor de tela do navegador exige a ativação do clique e um confirm a gastaria.
+        const avisoSistemaVisto = () => { try { return localStorage.getItem('aveia.aviso-sistema') === '1'; } catch { return false; } };
+        if (state.cfg.audioSistema && !avisoSistemaVisto()) { state.cfg.audioSistema = false; $('cfg-audiosistema').checked = false; salvar(); }   // ligada antes do aviso existir: pede de novo
+        $('cfg-audiosistema').addEventListener('change', e => {
+            if (e.target.checked && !avisoSistemaVisto()) {
+                if (!confirm('Você vai gravar o áudio do computador. Avise os participantes da chamada. Em dúvida sobre a regra que vale para você, consulte um advogado.')) {
+                    e.target.checked = false; state.cfg.audioSistema = false; salvar(); return;
+                }
+                try { localStorage.setItem('aveia.aviso-sistema', '1'); } catch {}
+            }
+            state.cfg.audioSistema = e.target.checked; salvar();
+        });
+
+        // Interruptor único da IA (padrão LIGADO). Desligado = nenhuma chamada de IA, para nenhum recurso: resumo, título, nomes dos
+        // locutores e escolha do trecho do destaque (o destaque cai na janela dos 10 s). Ligado = tudo ativo, sem outro botão.
+        // Sem chave, teto do mês atingido ou erro: o app segue sem IA, como sempre.
+        function iaLigada() { return state.cfg.ia !== false; }
+        function iaPode() { return iaLigada() && !!ia.configurada && !ia.uso?.bloqueada; }
+        $('cfg-iaauto').checked = iaLigada();
+        $('cfg-iaauto').addEventListener('change', e => {
+            state.cfg.ia = e.target.checked; salvar();
+            atualizarIaAuto(); renderResumo(); atualizarIdentificacao();
+            if (!e.target.checked) aviso('IA desligada: nenhum texto sai deste computador');
+        });
+        function atualizarIaAuto() {
+            const bloqueada = !!ia.uso?.bloqueada;
+            $('cfg-iaauto').checked = iaLigada();
+            $('cfg-iaauto').disabled = bloqueada;
+            $('iaauto-rotulo').classList.toggle('opacity-60', bloqueada);
+            $('iaauto-rotulo').title = bloqueada ? 'Limite mensal da IA atingido: a IA fica indisponível até o próximo mês.' : '';
+            $('iaauto-dica').textContent = iaLigada()
+                ? `Ligada: o texto da gravação vai ${ia.destino && ia.configurada ? 'ao ' + ia.destino : 'à nuvem'} depois de cada transcrição.`
+                : 'Desligada: nenhum texto sai deste computador (resumo, título, nomes e destaques sem IA).';
+            const av = $('iaauto-aviso');
+            av.textContent = iaLigada() && ia.configurada ? ia.aviso || '' : '';   // o aviso de privacidade fica nos Ajustes (ícone de configurações), nunca solto na tela
+            av.classList.toggle('hidden', !av.textContent);
+        }
+
+        // ---------- Privacidade ----------
+        const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+        async function carregarPrivacidade() {
+            const box = $('priv-corpo');
+            let p;
+            try {
+                const r = await fetch('/api/privacidade');
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                p = await r.json();
+            } catch { box.replaceChildren(el('p', 'text-framboesa', 'Não foi possível carregar.')); return; }
+            const tab = el('table', 'w-full text-left');
+            const cab = el('tr', 'text-[10px] uppercase tracking-wider text-mirtilo/40');
+            ['Recurso', 'Onde', 'Sai'].forEach(t => cab.appendChild(el('th', 'font-medium pb-1 pr-2', t)));
+            tab.appendChild(cab);
+            (p.recursos || []).forEach(rc => {
+                const nuvem = rc.onde === 'nuvem', nada = String(rc.envia).toLowerCase() === 'nada';
+                const tr = el('tr', 'border-t border-mirtilo/5');
+                tr.appendChild(el('td', 'py-1 pr-2 align-top break-words', rc.nome));
+                const onde = el('td', 'py-1 pr-2 align-top');
+                onde.appendChild(el('span', 'inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ' + (nuvem ? 'bg-framboesa/10 text-framboesa' : 'bg-amendoa/10 text-amendoa'), nuvem ? 'Nuvem' : 'Local'));
+                tr.appendChild(onde);
+                tr.appendChild(el('td', 'py-1 align-top ' + (nada ? 'text-mirtilo/40' : 'text-mirtilo/80'), rc.para ? `${rc.envia} para ${rc.para}` : rc.envia));
+                tab.appendChild(tr);
+            });
+            const partes = [tab];
+            const u = p.ia;
+            if (u) {
+                const linha = el('p', u.aviso || u.bloqueada ? 'text-framboesa' : '');
+                linha.appendChild(el('span', 'font-medium', 'IA no mês: '));
+                linha.append(`${u.chamadas} de ${u.teto} chamadas` + (u.bloqueada ? '. Bloqueada.' : ''));
+                partes.push(linha);
+            }
+            if (p.ia_aviso) partes.push(el('p', 'text-mirtilo/60', p.ia_aviso));   // para onde o texto vai e o que isso significa
+            const g = p.gravacoes;
+            if (g) {
+                const linha = el('p');
+                linha.appendChild(el('span', 'font-medium', 'No disco: '));
+                if (!g.arquivos) linha.append('nenhum arquivo guardado');
+                else linha.append(`${plural(g.arquivos, 'arquivo', 'arquivos')}, o mais antigo com ${plural(g.mais_antigo_dias, 'dia', 'dias')}`
+                    + (g.passaram_do_prazo ? `. ${plural(g.passaram_do_prazo, 'passou', 'passaram')} do prazo de ${g.prazo_dias} dias` : ''));
+                partes.push(linha);
+            }
+            if (p.rede && p.rede.length) {
+                const linha = el('div');
+                linha.appendChild(el('p', 'font-medium', 'Usa a internet para:'));
+                p.rede.forEach(x => linha.appendChild(el('p', 'text-mirtilo/60', `${x.nome}: ${x.envia}`)));
+                partes.push(linha);
+            }
+            box.replaceChildren(...partes);
+        }
+        $('priv').addEventListener('toggle', () => { if ($('priv').open) carregarPrivacidade(); });
+
+        // ---------- Seu computador ----------
+        const VEREDITO_PC = {
+            ao_vivo: 'Este computador acompanha a fala: dá para transcrever durante a gravação.',
+            depois: 'Este computador não acompanha a fala ao vivo: transcreva depois de gravar.',
+            lento: 'Este computador é lento para este modelo: a transcrição demora muito mais que a gravação.',
+        };
+        function mostrarComputador(d) {
+            const h = d.hardware || {}, a = d.avaliacao || {}, t = d.teste;
+            const linha = (nome, valor) => { const p = el('p'); p.appendChild(el('span', 'font-medium', nome + ': ')); p.append(valor); return p; };
+            const partes = [
+                linha('Processador', `${h.cpu || '?'} (${h.nucleos || '?'} núcleos)`),
+                linha('Memória', h.ram_total_gb != null ? `${h.ram_total_gb} GB, ${h.ram_livre_gb} GB livres` : 'não consegui ler'),
+                linha('Disco livre', h.disco_livre_gb != null ? `${h.disco_livre_gb} GB` : 'não consegui ler'),
+                linha('Windows', h.windows || '?'),
+            ];
+            (a.problemas || []).forEach(x => partes.push(el('p', 'text-framboesa', x)));
+            (a.avisos || []).forEach(x => partes.push(el('p', 'text-mirtilo/60', x)));
+            if (t) {
+                partes.push(linha('Último teste', `${d.classe_nome || t.classe}. Uma janela de 30 s levou ${t.janela_s} s (fator ${t.fator}), em ${String(t.quando || '').slice(0, 10)}.`));
+                partes.push(el('p', t.classe === 'ao_vivo' ? 'text-amendoa' : 'text-framboesa', VEREDITO_PC[t.classe] || ''));
+            } else {
+                partes.push(el('p', 'text-mirtilo/50', 'Ainda não testado: o teste mede a velocidade real do Whisper neste computador.'));
+            }
+            $('pc-corpo').replaceChildren(...partes);
+        }
+        async function carregarComputador() {
+            try {
+                const r = await fetch('/api/computador');
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                mostrarComputador(await r.json());
+            } catch { $('pc-corpo').replaceChildren(el('p', 'text-framboesa', 'Não foi possível carregar.')); }
+        }
+        async function testarComputador() {
+            const botao = $('pc-testar'), msg = $('pc-msg');
+            botao.disabled = true;
+            msg.textContent = 'Medindo... leva cerca de 1 minuto.';
+            try {
+                const r = await fetch('/api/computador/testar', { method: 'POST' });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const { job } = await r.json();
+                for (let i = 0; i < 400; i++) {   // até ~10 min (a primeira vez baixa o modelo)
+                    await new Promise(ok => setTimeout(ok, 1500));
+                    const j = await (await fetch('/api/jobs/' + job)).json();
+                    if (j.mensagem) msg.textContent = j.mensagem;
+                    if (j.status === 'pronto') { msg.textContent = ''; await carregarComputador(); botao.disabled = false; return; }
+                    if (j.status === 'erro') throw new Error(j.erro || 'erro');
+                }
+                throw new Error('demorou demais');
+            } catch (e) { msg.textContent = 'O teste não terminou: ' + e.message; botao.disabled = false; }
+        }
+        $('pc').addEventListener('toggle', () => { if ($('pc').open) carregarComputador(); });
+
+        // Exporta o estado guardado no navegador (notas, grupos e ajustes). Nada vai ao servidor.
+        function exportarTudo() {
+            const d = new Date(), z = x => String(x).padStart(2, '0');
+            const data = `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+            const conteudo = JSON.stringify({ formato: LS, exportado_em: d.toISOString(), estado: state }, null, 2);
+            const a = el('a'); a.href = URL.createObjectURL(new Blob([conteudo], { type: 'application/json;charset=utf-8' }));
+            a.download = `aveia-notas-${data}.json`;
+            a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+            aviso('Notas exportadas');
+        }
+
+        // Apaga as notas do navegador E os arquivos do disco. Se o servidor falhar, o navegador fica como está.
+        const apagarBanco = nome => new Promise(ok => {
+            try { const r = indexedDB.deleteDatabase(nome); r.onsuccess = r.onerror = r.onblocked = () => ok(); } catch { ok(); }
+        });
+        async function apagarTudo() {
+            if (estado !== 'ocioso') return aviso('Aguarde a gravação terminar', true);
+            if (!confirm('Apagar tudo?\n\nIsso apaga as notas deste navegador E os arquivos de áudio e transcrição guardados no disco. Não dá para desfazer.\n\nUse Exportar tudo antes, se quiser uma cópia.')) return;
+            let removidos = 0;
+            try {
+                const r = await fetch('/api/apagar-tudo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmar: true }) });
+                const j = await r.json().catch(() => ({}));
+                if (!r.ok || !j.ok) throw new Error(j.erro || 'HTTP ' + r.status);
+                removidos = j.removidos || 0;
+            } catch (e) {
+                console.error(e);
+                return aviso('O servidor não apagou os arquivos. As notas do navegador foram mantidas.', true);
+            }
+            try { localStorage.removeItem(LS); } catch {}
+            try { await BD.limpar(); } catch {}      // áudios pendentes (aveia-audio): esvazia a loja; apagar o banco ficaria preso nas conexões abertas
+            await apagarBanco('aveia-gravando');     // pedaços de gravações interrompidas
+            state = { notes: [], groups: [{ id: 'geral', nome: 'Geral', aberto: true }], menu: state.menu, atual: null, cfg: state.cfg };   // os ajustes (microfone, idioma, motor) ficam
+            criarNota(); salvar(); renderizar(); mostrarPendentes(); atualizarIdentificacao();
+            $('ajustes').classList.add('hidden');
+            aviso(removidos ? `Tudo apagado (${plural(removidos, 'arquivo', 'arquivos')} no disco)` : 'Tudo apagado');
+        }
+
+        // ---------- Exportar ----------
+        function textoNota() {
+            const n = nota();
+            const partes = [n.titulo.trim() || 'Nova nota'];
+            if (n.texto.trim()) partes.push(n.texto.trim());
+            const r = Nomes.limparResumo(n.resumo);   // o texto como está agora, editado ou não
+            if (r) {
+                const item = t => '• ' + t;
+                const blocos = ['RESUMO EXECUTIVO\n' + r.resumo];
+                if (r.destaques?.length) blocos.push('Destaques\n' + r.destaques.map(d => item(d.marca + (d.texto ? ': ' + d.texto : ''))).join('\n'));
+                if (r.topicos?.length) blocos.push('Pontos-chave\n' + r.topicos.map(item).join('\n'));
+                if (r.capitulos?.length) blocos.push('Linha do tempo\n' + r.capitulos.map(c => item(`[${fmt(c.inicio)}] ${c.titulo}${c.resumo ? ': ' + c.resumo : ''}`)).join('\n'));
+                if (r.decisoes?.length) blocos.push('Decisões\n' + r.decisoes.map(item).join('\n'));
+                if (r.acoes?.length) blocos.push('Próximos passos\n' + r.acoes.map(a => item(a.tarefa + [a.responsavel, a.prazo].filter(Boolean).map(x => ` (${x})`).join(''))).join('\n'));
+                partes.push(blocos.join('\n\n'));
+            }
+            const linhaTexto = i => i.destaque ? `[${fmt(i.quando ?? posDe(i.destaque))}] >>> DESTAQUE: ${i.destaque.texto}` : `[${fmt(i.fala.inicio)}] ${nomeDe(n, i.fala.locutor)}: ${i.fala.texto}`;
+            if (n.falas.length) partes.push('TRANSCRIÇÃO ORIGINAL\n' + intercalar(n).map(linhaTexto).join('\n\n'));
+            else if (n.destaques.length) partes.push('DESTAQUES\n' + intercalar(n).map(linhaTexto).join('\n'));
+            return partes.join('\n\n');
+        }
+        // HH:MM:SS,mmm (SRT) ou HH:MM:SS.mmm (VTT): o separador dos milissegundos muda.
+        const tempoLegenda = (s, sep) => { const ms = Math.round(s * 1000); const p = (v, l = 2) => String(v).padStart(l, '0');
+            return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)}${sep}${p(ms % 1000, 3)}`; };
+        function srt() {
+            const n = nota();
+            const t = s => tempoLegenda(s, ',');
+            return n.falas.map((f, i) => `${i + 1}\n${t(f.inicio)} --> ${t(f.fim)}\n${nomeDe(n, f.locutor)}: ${f.texto}\n`).join('\n');
+        }
+        function vtt() {
+            const n = nota();
+            const t = s => tempoLegenda(s, '.');
+            const limpo = x => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\s*\n\s*/g, ' ');   // no WebVTT, & e < têm sentido no texto e linha em branco encerra o bloco
+            return 'WEBVTT\n\n' + n.falas.map(f => `${t(f.inicio)} --> ${t(f.fim)}\n${limpo(nomeDe(n, f.locutor))}: ${limpo(f.texto)}\n`).join('\n');
+        }
+        async function copiar() {
+            try { await navigator.clipboard.writeText(textoNota()); aviso('Copiado'); } catch { aviso('Não foi possível copiar', true); }
+        }
+        function baixar(tipo) {
+            const n = nota();
+            if ((tipo === 'srt' || tipo === 'vtt') && !n.falas.length) return aviso('Sem transcrição', true);
+            const conteudo = tipo === 'srt' ? srt() : tipo === 'vtt' ? vtt() : textoNota();
+            const a = el('a'); a.href = URL.createObjectURL(new Blob([conteudo], { type: 'text/plain;charset=utf-8' }));
+            a.download = (n.titulo.trim() || 'aveia').replace(/[\\/:*?"<>|]/g, '') + '.' + tipo;
+            a.click(); URL.revokeObjectURL(a.href);
+        }
+
+        // ---------- Gravação ----------
+        // ocioso -> iniciando -> gravando <-> pausado -> processando -> ocioso
+        let estado = 'ocioso';
+        let processandoId = null;   // nota cuja gravação (ou arquivo) está sendo transcrita agora
+        let recorder, chunks = [], stream, audioCtx, raf, timerRec, durGravada = 0;
+        let sistema = null;          // { faixa, fluxo, acabou }: áudio do computador (getDisplayMedia) durante uma gravação em dois canais
+        let canaisGravacao = null;   // 'mic+sistema' enquanto o arquivo da gravação em andamento tem 2 canais (esq = microfone, dir = computador)
+        let acumulado = 0, retomadoEm = 0;   // ms gravados antes da última pausa / início do trecho atual
+        const barras = [...document.querySelectorAll('.wave-bar')];
+        const emGravacao = () => estado === 'gravando' || estado === 'pausado';
+        const decorrido = () => (acumulado + (estado === 'gravando' ? Date.now() - retomadoEm : 0)) / 1000;
+
+        function mostrarDock() {
+            $('pause-btn').classList.toggle('hidden', !emGravacao());
+            $('pause-icon').className = 'ph-fill text-sm ' + (estado === 'pausado' ? 'ph-play' : 'ph-pause');
+            $('pause-btn').title = estado === 'pausado' ? 'Continuar' : 'Pausar';
+            $('waveform').classList.toggle('live', estado === 'gravando');
+            $('rec-btn').classList.toggle('opacity-70', estado === 'processando' || estado === 'pausado');
+            renderChat();   // o painel de destaques acompanha o estado da gravação
+            if (estado === 'processando') return;
+            $('rec-icon').className = 'ph-fill text-sm ' + (emGravacao() ? 'ph-stop' : 'ph-microphone');
+            $('rec-label').textContent = emGravacao() ? fmt(decorrido()) : 'Gravar';
+        }
+
+        // Captação (constraints, fallback de dispositivo, erros, medidor e avisos): static/mic.js
+        let gravParcial;   // pedaços da gravação em andamento, guardados no IndexedDB (sobrevivem a crash/aba fechada)
+
+        function mostrarCanais(texto) {   // indicador no dock
+            $('canais-estado').classList.toggle('hidden', !texto);
+            if (texto) $('canais-rotulo').textContent = texto;
+        }
+        function liberarSistema() {
+            sistema?.fluxo.getTracks().forEach(t => t.stop());
+            sistema = null;
+        }
+
+        function liberarAudio() {
+            clearInterval(timerRec); cancelAnimationFrame(raf);
+            Mic.parar();
+            stream?.getTracks().forEach(t => t.stop());
+            liberarSistema(); mostrarCanais('');
+            audioCtx?.close().catch(() => {});
+            barras.forEach(b => b.style.height = '');
+        }
+
+        async function alternarGravacao() {
+            $('rec-btn').blur();               // evita Espaço/Enter reativarem o botão
+            if (emGravacao()) return pararGravacao();
+            if (estado !== 'ocioso') return;   // cliques repetidos durante permissão ou processamento
+            estado = 'iniciando';
+            // O AudioContext nasce dentro do gesto do clique (Safari/iOS só o deixam rodar assim).
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume().catch(() => {});
+            // Áudio do computador (opcional): o seletor do navegador só abre com a ativação do clique, então vem ANTES de esperar o
+            // microfone. Cancelar ou não marcar "Compartilhar áudio" nunca impede a gravação: segue só com o microfone.
+            let avisoSistema = '';
+            canaisGravacao = null;
+            let lembreteSistema = false;
+            let usarSistema = !!state.cfg.audioSistema;
+            if (usarSistema) lembreteSistema = true;   // o aviso legal (confirmação) é feito ao LIGAR a opção em Ajustes: aqui um confirm gastaria a ativação do clique que o seletor de tela exige
+            if (usarSistema) {
+                let s; try { s = await Mic.abrirSistema(); } catch (e) { console.warn(e); s = { motivo: 'erro' }; }   // nunca impede a gravação
+                if (s.faixa) { sistema = s; canaisGravacao = Mic.CANAIS_MIC_SISTEMA; }
+                else avisoSistema = {
+                    cancelado: 'Compartilhamento cancelado. Gravando só o microfone.',
+                    'sem-audio': 'Você não marcou "Compartilhar áudio". Gravando só o microfone.',
+                    'sem-suporte': 'Este navegador não captura o áudio do computador. Gravando só o microfone.',
+                }[s.motivo] || 'Não foi possível capturar o áudio do computador. Gravando só o microfone.';
+            }
+            try {
+                stream = await Mic.abrir(state.cfg); salvar();
+            } catch (e) {
+                audioCtx.close().catch(() => {}); estado = 'ocioso';
+                liberarSistema(); canaisGravacao = null;
+                Mic.mostrarErro(Mic.explicarErro(e)); return aviso('Microfone indisponível', true);
+            }
+
+            try {
+                const analyser = audioCtx.createAnalyser(); analyser.fftSize = 64;
+                const fonteMic = audioCtx.createMediaStreamSource(stream);
+                fonteMic.connect(analyser);
+                let fluxoGravado = stream;   // o que o MediaRecorder grava: o microfone puro, ou o estéreo (mic | computador)
+                if (sistema) {
+                    // Microfone -> canal ESQUERDO, áudio do computador -> DIREITO; o servidor separa "eu" de "eles" pelo canal.
+                    const fonteSis = audioCtx.createMediaStreamSource(new MediaStream([sistema.faixa]));
+                    const fusor = audioCtx.createChannelMerger(2);
+                    const destino = audioCtx.createMediaStreamDestination();
+                    destino.channelCount = 2; destino.channelCountMode = 'explicit'; destino.channelInterpretation = 'speakers';
+                    fonteMic.connect(fusor, 0, 0); fonteSis.connect(fusor, 0, 1); fusor.connect(destino);
+                    fonteSis.connect(analyser);   // as barras mostram os dois
+                    fluxoGravado = destino.stream;
+                    const sistema0 = sistema;
+                    // "Parar compartilhamento": o canal direito fica mudo, a gravação do microfone continua (arquivo segue estéreo).
+                    const acabou = () => {
+                        if (sistema !== sistema0 || sistema0.acabou) return;
+                        sistema0.acabou = true; try { fonteSis.disconnect(); } catch {}
+                        if (!emGravacao()) return;
+                        mostrarCanais('só microfone');
+                        aviso('O compartilhamento terminou. Continuo gravando só o microfone.', true);
+                    };
+                    sistema0.faixa.addEventListener('ended', acabou);
+                    sistema0.fluxo.getVideoTracks().forEach(t => t.addEventListener('ended', acabou));
+                    mostrarCanais('mic + computador');
+                }
+                const dados = new Uint8Array(analyser.frequencyBinCount);
+                const desenhar = () => {
+                    analyser.getByteFrequencyData(dados);
+                    barras.forEach((b, i) => { b.style.height = estado === 'gravando' ? Math.max(4, dados[i + 1] / 255 * 24) + 'px' : ''; });
+                    raf = requestAnimationFrame(desenhar);
+                };
+                desenhar();
+
+                Mic.monitorar(stream, audioCtx, null, () => estado === 'gravando');   // medidor de nível + avisos + Wake Lock
+                // O 3º argumento recebe cada pedaço (a cada 2 s): além de ficar na memória e no IndexedDB, vai ao servidor (ao vivo).
+                const canais = canaisGravacao;
+                const g = gravParcial = Mic.gravador(fluxoGravado, nota().id, b => enviarPedaco(sessaoAoVivo, b), canais);
+                recorder = g.recorder;
+                chunks = [];
+                sessaoAoVivo = iniciarAoVivo(nota().id, g.ext, canais);   // não espera nada: a gravação nunca depende disto
+                const av = sessaoAoVivo;
+                recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+                recorder.onstop = () => {
+                    if (sessaoAoVivo === av) sessaoAoVivo = null;
+                    if (durGravada < 0.7) { descartarAoVivo(av); g.finalizar(); estado = 'ocioso'; mostrarDock(); return aviso('Gravação muito curta', true); }
+                    const blob = new Blob(chunks, { type: recorder.mimeType }), dur = durGravada, pid = String(Date.now());
+                    // Primeiro vira "pendente" (IndexedDB); só então os pedaços temporários são apagados.
+                    BD.guardar({ id: pid, arquivo: blob, nomeArquivo: `gravacao.${g.ext}`, duracao: dur, notaId: nota().id, em: Date.now(), ...(canais ? { canais } : {}) })
+                        .then(() => { g.finalizar(); return pid; }, () => undefined)
+                        .then(p => enviar(blob, `gravacao.${g.ext}`, dur, nota().id, p, av, canais));
+                };
+                stream.getAudioTracks()[0].onended = () => { if (emGravacao()) pararGravacao(); };   // microfone desconectado
+                recorder.start(2000);
+            } catch (e) {
+                console.error(e); liberarAudio(); estado = 'ocioso'; descartarAoVivo(sessaoAoVivo); sessaoAoVivo = null; canaisGravacao = null; mostrarDock();
+                return aviso('Não foi possível gravar', true);
+            }
+
+            acumulado = 0; retomadoEm = Date.now(); estado = 'gravando';
+            clearInterval(timerRec);
+            timerRec = setInterval(() => { if (emGravacao()) $('rec-label').textContent = fmt(decorrido()); }, 250);
+            mostrarDock();
+            abrirChat();
+            if (avisoSistema) aviso(avisoSistema, true);
+            else if (lembreteSistema && canaisGravacao) aviso('Gravando o áudio do computador. Avise os participantes.');
+            else aviso('Gravando: ' + (stream.getAudioTracks()[0].label || 'microfone padrão') + (canaisGravacao ? ' + áudio do computador' : ''));
+        }
+
+        function alternarPausa() {
+            $('pause-btn').blur();
+            if (estado === 'gravando') { recorder.pause(); acumulado += Date.now() - retomadoEm; estado = 'pausado'; }
+            else if (estado === 'pausado') { recorder.resume(); retomadoEm = Date.now(); estado = 'gravando'; }
+            else return;
+            mostrarDock();
+        }
+
+        function pararGravacao() {
+            enviarDestaque();   // rascunho ainda não enviado vira destaque, no instante em que começou a ser escrito
+            durGravada = decorrido();
+            processandoId = state.atual;
+            estado = 'processando';
+            // Em dois canais o MediaRecorder grava a saída do AudioContext: para ele ANTES de fechar o grafo, para não perder o final.
+            if (canaisGravacao) { recorder.stop(); liberarAudio(); }
+            else { liberarAudio(); recorder.stop(); }
+            mostrarDock();
+        }
+
+        // ---------- Transcrição durante a gravação ("ao vivo") ----------
+        // Oportunista: os pedaços do MediaRecorder também vão ao servidor, que transcreve por blocos enquanto a reunião
+        // acontece. Qualquer dúvida desliga só o ao vivo; os pedaços, o Blob e o registro pendente seguem como sempre e o
+        // áudio inteiro vai pelo caminho clássico (/api/transcrever). Nada aqui pode atrasar ou derrubar a gravação.
+        let sessaoAoVivo = null;   // { id, notaId, seq, bytes, pedacos, cadeia, falhou, semTexto, desde, timer, consultando }
+        const AOVIVO_ESPERA_FIM_MS = 15000;   // ao parar: tempo máximo esperando o último pedaço subir
+        const AOVIVO_TENTATIVAS_FIM = 3;      // pedido de fechamento: 1 + 2 repetições (o servidor devolve o mesmo job)
+        const AOVIVO_ESPERA_REPETIR_MS = 1000;   // espera antes de cada repetição (1 s, 2 s)
+        const AOVIVO_TEMPO_FIM_MS = 15000;    // tempo máximo de cada tentativa de fechamento
+        const esperar = ms => new Promise(ok => setTimeout(ok, ms));
+
+        function iniciarAoVivo(notaId, ext, canais) {
+            if (!state.cfg.aoVivo) return null;
+            textoAoVivo = { notaId: null, falas: [] };
+            const av = { id: null, notaId, seq: 0, bytes: 0, pedacos: 0, falhou: false, semTexto: false, desde: 0, timer: null, consultando: false, cadeia: null };
+            av.cadeia = fetch('/api/aovivo', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idioma: state.cfg.idioma, locutores: state.cfg.locutores || 0, motor: state.cfg.motor || '', glossario: state.cfg.glossario || '', ext, ...(canais ? { canais } : {}) }),
+            }).then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+                .then(j => {
+                    if (!j.ao_vivo || !j.sessao) throw new Error(j.motivo || 'recusado pelo servidor');
+                    av.id = j.sessao;
+                    if (av.falhou) return apagarAoVivo(av);
+                    av.timer = setInterval(() => consultarAoVivo(av), 2000);
+                })
+                .catch(e => falharAoVivo(av, e));
+            return av;
+        }
+
+        function apagarAoVivo(av) {   // melhor esforço: libera a memória e o arquivo parcial no servidor
+            if (av && av.id) { const id = av.id; av.id = null; fetch('/api/aovivo/' + id, { method: 'DELETE', keepalive: true }).catch(() => {}); }
+        }
+        function falharAoVivo(av, e) {   // desliga o ao vivo desta gravação; o caminho clássico cobre tudo
+            if (!av || av.falhou) return;
+            av.falhou = true; clearInterval(av.timer);
+            console.info('Transcrição ao vivo desligada:', e && e.message || e);
+            apagarAoVivo(av);
+            if (textoAoVivo.notaId === av.notaId) limparTextoAoVivo();
+        }
+        const descartarAoVivo = av => { if (av) { av.falhou = true; clearInterval(av.timer); apagarAoVivo(av); limparTextoAoVivo(); } };
+
+        // Um pedaço de cada vez, em ordem (seq a partir de 0), com 2 novas tentativas. Nunca lança.
+        function enviarPedaco(av, blob) {
+            try {
+                if (!av || av.falhou) return;
+                const seq = av.seq++;
+                av.cadeia = av.cadeia.then(async () => {
+                    if (av.falhou || !av.id) return;
+                    for (let t = 0; t < 3; t++) {
+                        const ctl = new AbortController(), limite = setTimeout(() => ctl.abort(), 20000);
+                        try {
+                            const r = await fetch(`/api/aovivo/${av.id}/pedaco?seq=${seq}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: blob, signal: ctl.signal });
+                            if (r.ok) { av.bytes += blob.size; av.pedacos++; return; }
+                            if (r.status < 500 && r.status !== 408 && r.status !== 429) break;   // 4xx: repetir não adianta
+                        } catch {} finally { clearTimeout(limite); }
+                        if (av.falhou) return;
+                        await esperar(400 * (t + 1));
+                    }
+                    falharAoVivo(av, new Error('pedaço ' + seq + ' não chegou ao servidor'));
+                }).catch(e => falharAoVivo(av, e));
+            } catch (e) { console.warn(e); }
+        }
+
+        async function consultarAoVivo(av) {
+            if (av.falhou || av.semTexto || av.consultando || !av.id) return;
+            if (!emGravacao() || sessaoAoVivo !== av) { clearInterval(av.timer); return; }
+            av.consultando = true;
+            try {
+                const r = await fetch(`/api/aovivo/${av.id}?desde=${av.desde}`);
+                if (r.status === 404) return falharAoVivo(av, new Error('sessão perdida (servidor reiniciou?)'));
+                if (!r.ok) return;   // falha passageira: tenta de novo no próximo ciclo
+                const j = await r.json();
+                if (av.falhou || sessaoAoVivo !== av) return;
+                if (j.status === 'degradada') {   // o servidor não consegue decodificar: sem texto ao vivo, mas ele guarda o arquivo (finaliza no clássico)
+                    av.semTexto = true; clearInterval(av.timer); console.info('Ao vivo degradado no servidor:', j.motivo);
+                    return limparTextoAoVivo();
+                }
+                const atuais = textoAoVivo.notaId === av.notaId ? textoAoVivo.falas.slice(0, av.desde) : [];
+                definirTextoAoVivo(av.notaId, atuais.concat(j.falas));
+                av.desde = Math.max(0, j.total - 1);   // a última fala ainda pode crescer: pede de novo a partir dela
+            } catch { /* rede instável: o próximo ciclo tenta de novo */ }
+            finally { av.consultando = false; }
+        }
+
+        // Ao parar: espera o último pedaço (no máximo 15 s) e pede o fechamento. Devolve o job ou null (usar o clássico).
+        async function finalizarAoVivo(av, blob, dur) {
+            if (!av || av.falhou) return null;
+            clearInterval(av.timer);
+            try {
+                await Promise.race([av.cadeia, esperar(AOVIVO_ESPERA_FIM_MS)]);
+                if (av.falhou || !av.id) throw new Error('nem todos os pedaços subiram');
+                if (av.bytes !== blob.size || av.pedacos !== av.seq) throw new Error(`contagem diverge (${av.bytes}/${blob.size} bytes, ${av.pedacos}/${av.seq} pedaços)`);
+                // O servidor é idempotente: se a resposta se perder (rede/tempo/5xx), repetir devolve o MESMO job. Resposta 4xx
+                // (409 = contagem não bate, 404 = sessão perdida) não se repete: vai direto ao clássico. Limite residual: se o
+                // servidor ficar inacessível nas 3 tentativas, o clássico reenvia o áudio e o job ao vivo pode ainda concluir lá
+                // (processamento em dobro e um arquivo não confirmado em gravacoes/); o DELETE abaixo é ignorado em sessão já finalizada.
+                let r = null, erroRede = null;
+                for (let t = 0; t < AOVIVO_TENTATIVAS_FIM; t++) {
+                    if (t) await esperar(AOVIVO_ESPERA_REPETIR_MS * t);
+                    const ctl = new AbortController(), tempo = setTimeout(() => ctl.abort(), AOVIVO_TEMPO_FIM_MS);
+                    try {
+                        r = await fetch(`/api/aovivo/${av.id}/finalizar`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal,
+                            body: JSON.stringify({ bytes: av.bytes, pedacos: av.pedacos, duracao: dur }),
+                        });
+                        erroRede = null;
+                        if (r.status < 500) break;
+                    } catch (e) { r = null; erroRede = e; }
+                    finally { clearTimeout(tempo); }
+                }
+                if (!r) throw erroRede || new Error('sem resposta ao fechar');
+                if (!r.ok) throw new Error('o servidor recusou o fechamento (' + r.status + ')');
+                const { job } = await r.json();
+                if (!job) throw new Error('sem job');
+                av.id = null;   // o job é dono do arquivo daqui em diante
+                return job;
+            } catch (e) {
+                falharAoVivo(av, e);
+                return null;
+            }
+        }
+
+        // Envia o áudio inteiro pelo caminho clássico. Devolve o id do job.
+        async function enviarClassico(arquivo, nomeArquivo, canais) {
+            const fd = new FormData();
+            fd.append('audio', arquivo, nomeArquivo);
+            if (canais) fd.append('canais', canais);   // layout do arquivo (mic+sistema = estéreo); importações e gravações só com microfone não enviam
+            fd.append('idioma', state.cfg.idioma);
+            fd.append('locutores', state.cfg.locutores || 0);
+            fd.append('motor', state.cfg.motor || '');
+            fd.append('glossario', state.cfg.glossario || '');
+            const resp = await fetch('/api/transcrever', { method: 'POST', body: fd });
+            if (!resp.ok) throw new Error('O servidor recusou o áudio (' + resp.status + ')');
+            return (await resp.json()).job;
+        }
+
+        function importar(input) {
+            const f = input.files[0]; input.value = '';
+            if (f && estado === 'ocioso') enviar(f, f.name, 0);
+        }
+
+        // O áudio é guardado no navegador (IndexedDB) antes de ir ao servidor e só é apagado depois que a nota foi salva.
+        // Se o servidor cair ou a transcrição falhar, a gravação continua disponível em "Tentar de novo".
+        const BD = (() => {
+            const abrir = () => new Promise((ok, no) => {
+                const r = indexedDB.open('aveia-audio', 1);
+                r.onupgradeneeded = () => r.result.createObjectStore('pendentes', { keyPath: 'id' });
+                r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error);
+            });
+            const tx = async (modo, fn) => {
+                const db = await abrir();
+                return new Promise((ok, no) => { const t = db.transaction('pendentes', modo); const r = fn(t.objectStore('pendentes')); t.oncomplete = () => ok(r.result); t.onerror = () => no(t.error); });
+            };
+            return { guardar: reg => tx('readwrite', s => s.put(reg)), apagar: id => tx('readwrite', s => s.delete(id)), limpar: () => tx('readwrite', s => s.clear()), todos: () => tx('readonly', s => s.getAll()) };
+        })();
+
+        async function mostrarPendentes() {
+            const box = $('pendentes');
+            let regs = [];
+            try { regs = await BD.todos(); } catch {}
+            box.replaceChildren(); box.classList.toggle('hidden', !regs.length);
+            regs.forEach(reg => {
+                const linha = el('div', 'flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 rounded-2xl bg-framboesa/10 border border-framboesa/20 text-sm text-mirtilo');
+                linha.appendChild(el('i', 'ph-fill ph-warning-circle text-framboesa text-base'));
+                const mb = (reg.arquivo.size / 1048576).toFixed(1);
+                linha.appendChild(el('span', 'flex-1 min-w-[16rem]', `Gravação de ${new Date(reg.em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })} (${mb} MB) não foi salva em nota. O áudio está guardado.`));
+                const botao = (texto, fn, cls = 'text-mirtilo/70 hover:text-mirtilo') => {
+                    const b = el('button', `text-xs font-semibold px-2.5 py-1 rounded-full hover:bg-mirtilo/5 ${cls}`, texto); b.onclick = fn; linha.appendChild(b);
+                };
+                botao('Tentar de novo', () => estado === 'ocioso' ? enviar(reg.arquivo, reg.nomeArquivo, reg.duracao, reg.notaId, reg.id, undefined, reg.canais) : aviso('Aguarde o processamento atual', true), 'bg-framboesa text-aveia hover:text-aveia hover:bg-framboesa hover:brightness-110');
+                botao('Baixar áudio', () => {
+                    const a = el('a'); a.href = URL.createObjectURL(reg.arquivo); a.download = reg.nomeArquivo || 'gravacao.webm'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+                });
+                botao('Descartar', async () => { if (confirm('Descartar esta gravação? O áudio será apagado e não poderá ser recuperado.')) { await BD.apagar(reg.id); mostrarPendentes(); } }, 'text-framboesa/80 hover:text-framboesa');
+                box.appendChild(linha);
+            });
+        }
+
+        // `av`: sessão ao vivo desta gravação (se houver). Com ela só falta a cauda; qualquer falha cai no upload do Blob.
+        async function enviar(arquivo, nomeArquivo, duracao, notaId, pendenteId, av, canais) {
+            estado = 'processando';
+            const alvo = state.notes.find(n => n.id === notaId) || nota();
+            processandoId = alvo.id;
+            if (alvo.id === state.atual) renderTranscricao();
+            const pid = pendenteId || String(Date.now());
+            $('rec-icon').className = 'ph-bold ph-circle-notch text-sm spin';
+            $('rec-label').textContent = '0%';
+            $('rec-btn').classList.add('opacity-70');
+            $('pause-btn').classList.add('hidden');
+            try {
+                if (!pendenteId) { try { await BD.guardar({ id: pid, arquivo, nomeArquivo, duracao, notaId: alvo.id, em: Date.now(), ...(canais ? { canais } : {}) }); } catch (e) { console.warn('Não foi possível guardar o áudio localmente', e); } }
+                if (nota()) indicadorAoVivo(falasAoVivo(nota()));
+                let job = av ? await finalizarAoVivo(av, arquivo, duracao) : null;
+                if (!job) job = await enviarClassico(arquivo, nomeArquivo, canais);
+                let r, falhas = 0;
+                do {
+                    await new Promise(ok => setTimeout(ok, 1000));
+                    try { r = await (await fetch('/api/jobs/' + job)).json(); falhas = 0; }
+                    catch (e) { if (++falhas > 10) throw new Error('Perdi a conexão com o servidor'); r = { status: 'processando', progresso: 0 }; continue; }
+                    $('rec-label').textContent = Math.round((r.progresso || 0) * 100) + '%';
+                    $('rec-btn').title = r.mensagem || '';
+                    if (r.parciais && r.parciais.length) definirTextoAoVivo(alvo.id, r.parciais);   // texto provisório enquanto o resto roda
+                } while (r.status === 'processando');
+                if (r.status === 'erro') throw new Error(r.erro);
+
+                textoAoVivo = { notaId: null, falas: [] };   // chegou o texto final: o provisório sai (renderizar() abaixo redesenha)
+                const desloc = alvo.duracao || 0;
+                r.falas.forEach(f => alvo.falas.push({ ...f, inicio: f.inicio + desloc, fim: f.fim + desloc }));
+                // Trechos possivelmente incompletos (clássico e ao vivo chegam aqui): só os não resolvidos viram marcador na tela.
+                alvo.lacunas = (alvo.lacunas || []).concat((r.lacunas || [])
+                    .filter(l => l && ['parcial', 'nao_recuperada'].includes(l.estado) && Number.isFinite(+l.inicio) && Number.isFinite(+l.fim))
+                    .map(l => ({ inicio: +l.inicio + desloc, fim: +l.fim + desloc, estado: l.estado })));
+                const fim = r.falas.length ? r.falas.reduce((m, f) => Math.max(m, f.fim), 0) : 0;
+                alvo.duracao = desloc + (duracao || fim);
+                alvo.partes = (alvo.partes || 0) + 1;   // nº desta gravação na nota (nome do arquivo de áudio)
+                baseDe(alvo);
+                if (!salvar()) throw new Error('Não foi possível salvar a nota no navegador (armazenamento cheio?)');
+                // Nota salva: agora o áudio guardado pode ser apagado.
+                try { await BD.apagar(pid); } catch {}
+                // O servidor guarda áudio e transcrição nas pastas (até 5 arquivos cada) e apaga o que não couber.
+                confirmacoes[alvo.id] = fetch('/api/jobs/' + job + '/confirmar', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base: baseDe(alvo), parte: alvo.partes, titulo: alvo.titulo, duracao: duracaoDe(alvo), falas: falasComNomes(alvo), destaques: destaquesPara(alvo) })
+                }).then(x => x.json()).then(avisarLimite).catch(() => {});
+                if (alvo.id === state.atual) renderizar();
+                if (r.motor) { alvo.motor = r.motor; salvar(); }
+                aviso(r.falas.length ? 'Transcrição pronta' + (r.motor && r.motor !== 'local' ? ' · ' + nomeMotor(r.motor) : '') : 'Nenhuma fala detectada', !r.falas.length);
+                if (r.avisos && r.avisos.length) setTimeout(() => { aviso(r.avisos.join(' '), true); $('toast').title = r.avisos.join('\n'); }, 2000);
+                // Gravação em dois canais: o microfone é sempre o Locutor 1. Só avisa (uma vez); renomear fica com o usuário.
+                if (r.locutor_local && r.falas.length && !state.cfg.avisoLocutorLocal && !(alvo.nomes[r.locutor_local] || '').trim()) {
+                    state.cfg.avisoLocutorLocal = true; salvar();
+                    setTimeout(() => aviso(`${r.locutor_local} é o seu microfone`), r.avisos && r.avisos.length ? 5800 : 2300);
+                }
+                // Comandos de identificação do chat ("Marina que está falando"): dão nome aos locutores antes da IA e do resumo (regra local, sem IA).
+                try { await aplicarIdentificacoes(alvo, desloc); } catch (e) { console.warn('Identificação pelo chat falhou', e); }
+                // IA automática: só com o interruptor ligado (padrão desligado) e sem o teto do mês estourado. Desligada, nada sai; os botões manuais seguem valendo.
+                const iaAutomatica = iaPode();   // IA ligada, com chave e abaixo do teto do mês
+                if (r.falas.length && iaAutomatica) gerarTitulo(alvo);   // título automático (só se ainda for o padrão), sem bloquear
+                if (r.falas.length && iaAutomatica) resolverDestaquesIA(alvo, desloc);   // a IA escolhe o trecho de cada destaque
+                // Nomes dos locutores primeiro (uma chamada curta, não bloqueia a tela); o resumo automático sai depois, já com eles.
+                if (r.falas.length && iaAutomatica) identificarLocutores(alvo).finally(() => gerarResumo(alvo, true));
+            } catch (e) {
+                aviso('Falha ao transcrever. A gravação foi guardada: use "Tentar de novo".', true); console.error(e);
+            } finally {
+                estado = 'ocioso'; processandoId = null; $('rec-btn').title = ''; limparTextoAoVivo(); mostrarDock(); mostrarPendentes();
+                if (nota()) renderTranscricao();   // tira o aviso de "transcrevendo"; o texto final já foi desenhado
+            }
+        }
+
+        // ---------- Destaque: a IA escolhe o trecho ----------
+        // Depois da transcrição final (o texto provisório muda e atrasa), cada destaque desta gravação manda ao servidor as frases
+        // dos 10 s anteriores (mais uma de cada lado, porque os horários dentro de uma fala longa são estimados) e a IA diz quais
+        // pertencem ao tópico. O destaque passa a cobrir só esse trecho e aparece antes dele. Só com a IA automática ligada (o texto
+        // vai à nuvem) e sob o teto mensal. Sem IA (desligada, sem chave, teto ou erro) vale a janela dos 10 s anteriores.
+        const IA_FRASES_MAX = 20;
+        function frasesDaFala(n, f) {   // frases com horário estimado pela posição no texto
+            const texto = f.texto || '', len = texto.length, dur = Math.max(0, f.fim - f.inicio), pts = [...new Set(pontosDeCorte(texto))];
+            const r = [];
+            for (let k = 0; k + 1 < pts.length; k++) {
+                const t = texto.slice(pts[k], pts[k + 1]).trim();
+                if (t) r.push({ inicio: f.inicio + pts[k] / len * dur, fim: f.inicio + pts[k + 1] / len * dur, locutor: nomeDe(n, f.locutor), texto: t });
+            }
+            return r;
+        }
+        function candidatasDoDestaque(n, d) {
+            const c = d.cobre; if (!c || !(c.fim > c.inicio)) return [];
+            const todas = n.falas.flatMap(f => frasesDaFala(n, f));
+            const dentro = todas.map((u, k) => u.fim > c.inicio && u.inicio < c.fim ? k : -1).filter(k => k >= 0);
+            if (!dentro.length) return [];
+            const de = Math.max(0, dentro[0] - 1), ate = Math.min(todas.length - 1, dentro[dentro.length - 1] + 1);
+            return todas.slice(de, ate + 1).slice(0, IA_FRASES_MAX).map((u, i) => ({ ...u, i: i + 1 }));
+        }
+        const MOTIVO_REGRA = { desligada: 'IA desligada', sem_chave: 'IA sem chave', teto: 'limite mensal de IA atingido', falha: 'a IA falhou' };
+        async function resolverDestaquesIA(n, desde) {
+            if (!iaPode()) return;   // IA desligada, sem chave ou no teto: vale a janela dos 10 s anteriores
+            const pendentes = n.destaques.filter(d => d.modo !== 'ia' && d.t >= desde - 0.001 && d.cobre && d.cobre.fim > d.cobre.inicio);
+            let motivo = '';
+            for (const d of pendentes) {
+                const cand = candidatasDoDestaque(n, d);
+                if (!cand.length) continue;
+                try {
+                    const r = await (await fetch('/api/destaque-escopo', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ destaque: d.texto, candidatas: cand }) })).json();
+                    if (r.modo !== 'ia') { motivo = r.motivo || 'falha'; if (motivo !== 'falha') break; continue; }
+                    const esc = cand.filter(u => (r.indices || []).includes(u.i));
+                    if (!esc.length) continue;   // a IA não achou frase do assunto: fica a janela dos 10 s anteriores
+                    d.ancora = Math.min(...esc.map(u => u.inicio));
+                    d.cobre = { inicio: d.ancora, fim: Math.max(...esc.map(u => u.fim)) };
+                    d.modo = 'ia';
+                } catch (e) { motivo = 'falha'; console.error(e); }
+            }
+            salvar();
+            if (n.id === state.atual) { renderTranscricao(); renderResumo(); }
+            if (motivo) aviso(`Destaques: ${MOTIVO_REGRA[motivo] || 'a IA falhou'}; valem as falas dos 10 s anteriores`, true);
+        }
+
+        // ---------- Resumo executivo (IA) ----------
+        let ia = { configurada: false, modelo: '' };
+        const gerandoIds = new Set();
+        const progressoIA = {};   // id da nota -> { p: 0..1, msg }
+        async function carregarIA() {
+            try { ia = await (await fetch('/api/ia')).json(); } catch {}
+            renderResumo(); atualizarIdentificacao(); atualizarIaAuto();
+        }
+
+        function atualizarMagic() {
+            const n = nota(), btn = $('magic-btn');
+            const gerando = gerandoIds.has(n.id);
+            btn.disabled = gerando || !iaLigada();
+            btn.title = iaLigada() ? 'Gerar resumo' : 'IA desligada nos Ajustes';
+            btn.innerHTML = gerando
+                ? '<i class="ph-bold ph-circle-notch text-sm spin"></i><span>Gerando</span>'
+                : `<i class="ph-fill ph-sparkle text-sm"></i><span>${n.resumo ? 'Refazer' : 'Gerar'}</span>`;
+        }
+
+        function lista(titulo, itens, desenhar) {
+            const bloco = el('div');
+            bloco.appendChild(el('div', 'text-[11px] font-semibold uppercase tracking-wider text-mirtilo/40 mb-2', titulo));
+            const ul = el('div', 'space-y-2');
+            itens.forEach(i => ul.appendChild(desenhar(i)));
+            bloco.appendChild(ul);
+            return bloco;
+        }
+        const ponto = texto => {
+            const row = el('div', 'flex items-start gap-3 text-base leading-relaxed text-mirtilo/80');
+            row.appendChild(el('span', 'w-1.5 h-1.5 rounded-full bg-amendoa mt-2.5 shrink-0'));
+            row.appendChild(el('span', 'min-w-0', texto));
+            return row;
+        };
+
+        function renderResumo() {
+            const n = nota(), corpo = $('resumo-corpo');
+            const r = n.resumo, gerando = gerandoIds.has(n.id);
+            $('resumo').classList.toggle('hidden', !n.falas.length || (!r && !gerando));   // o cartão só aparece quando o resumo existe (ou está sendo feito)
+            $('layout').classList.toggle('dividido', temTranscricao(n) && !transcricaoNoPainelAntes);
+            corpo.replaceChildren();
+            $('resumo-modelo').textContent = r?.modelo ? r.modelo.split('/').pop() : '';
+            $('resumo-refazer').classList.toggle('hidden', gerando || !r);
+            $('resumo-desfazer').classList.toggle('hidden', gerando || !n.resumoAnterior);
+            atualizarMagic();
+            if (gerando) {
+                ['w-full', 'w-11/12', 'w-2/3'].forEach(w => corpo.appendChild(el('div', `h-4 rounded-full bg-amendoa/15 animate-pulse ${w}`)));
+                const pr = progressoIA[n.id];
+                if (pr) {
+                    corpo.appendChild(el('p', 'text-xs text-mirtilo/50', `${pr.msg || 'Resumindo...'} · ${Math.round(pr.p * 100)}%`));
+                    const trilho = el('div', 'h-1 rounded-full bg-amendoa/15 overflow-hidden');
+                    const barra = el('div', 'h-full rounded-full bg-amendoa transition-all duration-500');
+                    barra.style.width = Math.round(pr.p * 100) + '%';
+                    trilho.appendChild(barra); corpo.appendChild(trilho);
+                }
+                return;
+            }
+            if (!r) {
+                const b = el('button', 'inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-amendoa/10 text-amendoa text-xs font-medium hover:bg-amendoa/20 transition-colors');
+                b.appendChild(el('i', 'ph-fill ph-sparkle'));
+                b.appendChild(el('span', null, 'Gerar resumo'));
+                b.onclick = () => gerarResumo();
+                corpo.appendChild(b);
+                if (!ia.configurada) corpo.appendChild(el('p', 'text-xs text-mirtilo/40', 'IA não configurada. ' + (ia.sem_chave || 'Defina GEMINI_API_KEY no arquivo .env.')));
+                return;
+            }
+            if (r.perfil) {   // como a gravação foi analisada, conforme a duração
+                const pf = r.perfil;
+                corpo.appendChild(el('p', 'text-[11px] font-medium text-mirtilo/40', `Gravação de ${fmt(pf.duracao)} · análise ${pf.nome.toLowerCase()}${pf.blocos > 1 ? ` · ${pf.blocos} blocos` : ''}`));
+                (pf.avisos || []).forEach(a => corpo.appendChild(el('p', 'text-xs text-framboesa', a)));
+            }
+            // Tudo abaixo é texto editável no próprio lugar (sem botão de editar): cada pedaço grava direto no resumo da nota.
+            if (!r.editado && typeof r.resumo === 'string') r.resumo = r.resumo.split(/\n\s*\n/).filter(t => t.trim()).map(t => t.trim()).join('\n\n');   // resumos antigos: parágrafos limpos
+            if (typeof r.resumo === 'string' && r.resumo !== '') {   // narrativa em parágrafos (linha em branco)
+                const parags = r.resumo.split('\n\n');
+                const narrativa = el('div', 'space-y-3');
+                parags.forEach((t, i) => narrativa.appendChild(editavel(n, 'p', 'font-serif text-lg sm:text-xl leading-relaxed text-mirtilo', t, `par:${i}`,
+                    opsItem(n, parags, i, 'par', k => parags[k], (k, v) => { parags[k] = v; }, v => v, () => { r.resumo = parags.join('\n\n'); }))));
+                corpo.appendChild(narrativa);
+            }
+            if (r.destaques?.length) corpo.appendChild(lista('Destaques', r.destaques, d => {   // resumos anteriores aos destaques não têm este campo
+                const row = el('div', 'flex items-start gap-3 rounded-xl -mx-2 px-2 py-1.5');
+                const chip = el('button', 'shrink-0 mt-0.5 px-2 py-0.5 rounded-full bg-amendoa/10 text-[11px] font-mono text-amendoa hover:bg-amendoa/20 transition-colors', fmt(d.t));
+                chip.title = 'Ir para este ponto da transcrição';
+                chip.onclick = () => irParaFala(d.t);
+                row.appendChild(chip);
+                const col = el('div', 'min-w-0 flex-1 text-base leading-relaxed text-mirtilo/80');
+                const i = r.destaques.indexOf(d);
+                col.appendChild(editavel(n, 'strong', 'font-semibold text-mirtilo', d.marca || '', `dest:${i}:m`, { texto: v => { d.marca = v; } }));
+                col.appendChild(document.createTextNode(d.texto ? ': ' : ' '));
+                col.appendChild(editavel(n, 'span', '', d.texto || '', `dest:${i}:t`, { texto: v => { d.texto = v; } }));
+                row.appendChild(col);
+                return row;
+            }));
+            if (r.topicos?.length) corpo.appendChild(lista('Pontos-chave', r.topicos.map((_, i) => i), i => pontoEditavel(n, r.topicos, i, 'top')));
+            if (r.capitulos?.length) corpo.appendChild(lista('Linha do tempo', r.capitulos, c => {
+                const i = r.capitulos.indexOf(c);
+                const row = el('div', 'w-full flex items-start gap-3 rounded-xl -mx-2 px-2 py-1.5');
+                const chip = el('button', 'shrink-0 mt-0.5 px-2 py-0.5 rounded-full bg-amendoa/10 text-[11px] font-mono text-amendoa hover:bg-amendoa/20 transition-colors', fmt(c.inicio));
+                chip.title = 'Ir para este trecho da transcrição';
+                chip.onclick = () => irParaFala(c.inicio);
+                row.appendChild(chip);
+                const col = el('div', 'min-w-0 flex-1');
+                const proximo = () => { focoPendente = { chave: c.resumo ? `cap:${i}:r` : `cap:${i + 1}:t`, pos: 0 }; renderResumo(); };
+                col.appendChild(editavel(n, 'div', 'text-base font-medium text-mirtilo', c.titulo || '', `cap:${i}:t`, {
+                    texto: v => { c.titulo = v; }, enter: proximo,
+                    voltar: atual => { if (!atual && !c.resumo) { r.capitulos.splice(i, 1); focoPendente = { chave: `cap:${Math.max(0, i - 1)}:t`, pos: Infinity }; resumoEditado(n); renderResumo(); } } }));
+                if (c.resumo) col.appendChild(editavel(n, 'div', 'text-sm leading-relaxed text-mirtilo/60', c.resumo, `cap:${i}:r`, {
+                    texto: v => { c.resumo = v; }, enter: () => { focoPendente = { chave: `cap:${i + 1}:t`, pos: 0 }; renderResumo(); },
+                    voltar: atual => { if (!atual) { c.resumo = ''; focoPendente = { chave: `cap:${i}:t`, pos: Infinity }; resumoEditado(n); renderResumo(); } } }));
+                row.appendChild(col);
+                return row;
+            }));
+            if (r.decisoes?.length) corpo.appendChild(lista('Decisões', r.decisoes.map((_, i) => i), i => pontoEditavel(n, r.decisoes, i, 'dec')));
+            if (r.acoes?.length) corpo.appendChild(lista('Próximos passos', r.acoes, a => {
+                const i = r.acoes.indexOf(a);
+                const row = el('div', 'flex items-start gap-3 text-base leading-relaxed text-mirtilo/80');
+                row.appendChild(el('i', 'ph ph-circle text-amendoa mt-1.5 shrink-0'));
+                const col = el('div', 'min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1');
+                col.appendChild(editavel(n, 'span', 'min-w-[2ch]', a.tarefa || '', `aco:${i}`,
+                    opsItem(n, r.acoes, i, 'aco', k => r.acoes[k].tarefa || '', (k, v) => { r.acoes[k].tarefa = v; }, v => ({ tarefa: v }))));
+                if (a.responsavel) col.appendChild(editavel(n, 'span', 'px-2 py-0.5 rounded-full bg-mirtilo/5 text-xs font-medium text-mirtilo/70', a.responsavel, `aco:${i}:r`, { texto: v => { a.responsavel = v; } }));
+                if (a.prazo) col.appendChild(editavel(n, 'span', 'px-2 py-0.5 rounded-full bg-framboesa/10 text-xs font-medium text-framboesa', a.prazo, `aco:${i}:p`, { texto: v => { a.prazo = v; } }));
+                row.appendChild(col);
+                return row;
+            }));
+            if (focoPendente) {   // depois de Enter ou de apagar um item: o cursor volta ao lugar certo
+                const f = focoPendente; focoPendente = null;
+                const alvo = corpo.querySelector(`[data-ed="${f.chave}"]`);
+                if (alvo) colocarCursor(alvo, f.pos);
+            }
+        }
+
+        // ---------- Resumo editável (como um bloco de notas) ----------
+        // Cada pedaço de texto do resumo é editável no próprio lugar: sem botão de editar, sem caixa, sem trocar de fonte. Texto simples
+        // (`plaintext-only`; no navegador sem ele, colar é limpo para texto): nada digitado vira HTML. Grava sozinho, em silêncio.
+        // `resumo.editado` marca que a pessoa mexeu: a IA automática não sobrescreve e Refazer pergunta antes.
+        const EDITAVEL = (() => { try { const d = document.createElement('div'); d.contentEditable = 'plaintext-only'; return d.contentEditable === 'plaintext-only'; } catch { return false; } })();
+        let focoPendente = null;      // { chave, pos }: devolve o cursor depois de redesenhar (pos Infinity = no fim)
+        let salvarResumoTimer = 0;
+        function resumoEditado(n) {
+            if (!n.resumo) return;
+            n.resumo.editado = true; n.resumo.editadoEm = Date.now();
+            clearTimeout(salvarResumoTimer);
+            salvarResumoTimer = setTimeout(() => { salvarResumoTimer = 0; salvar(); sincronizarNomes(n); }, 700);   // atraso curto de sempre; também regrava o arquivo em Análises/
+        }
+        window.addEventListener('pagehide', () => { if (salvarResumoTimer) { clearTimeout(salvarResumoTimer); salvarResumoTimer = 0; salvar(); } });
+        const textoDoEditavel = e => (e.innerText || '').replace(/\u00a0/g, ' ').replace(/[\r\n]+/g, ' ').replace(/\s+$/, '');
+        function cursorEm(e) {
+            const sel = getSelection();
+            if (!sel.rangeCount || !e.contains(sel.anchorNode)) return null;
+            const pre = sel.getRangeAt(0).cloneRange();
+            pre.selectNodeContents(e); pre.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
+            return { pos: pre.toString().length, colapsado: sel.isCollapsed };
+        }
+        function colocarCursor(e, pos) {
+            e.focus();
+            const r = document.createRange(), t = e.firstChild;
+            if (t && t.nodeType === 3) r.setStart(t, Math.min(pos, t.length)); else r.setStart(e, 0);
+            r.collapse(true);
+            const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        }
+        // ops: { texto(v) grava o texto; enter(antes, depois) (opcional); voltar(textoAtual) com o cursor no começo (opcional) }
+        function editavel(n, tag, cls, texto, chave, ops) {
+            const e = el(tag, (cls ? cls + ' ' : '') + 'ed', texto);
+            e.contentEditable = EDITAVEL ? 'plaintext-only' : 'true';
+            e.spellcheck = true; e.dataset.ed = chave;
+            e.addEventListener('input', () => { ops.texto(textoDoEditavel(e)); resumoEditado(n); });
+            e.addEventListener('paste', ev => {   // sempre texto simples, numa linha só
+                ev.preventDefault();
+                document.execCommand('insertText', false, (ev.clipboardData?.getData('text/plain') || '').replace(/\s+/g, ' '));
+            });
+            e.addEventListener('keydown', ev => {
+                if (ev.isComposing) return;
+                if (ev.key === 'Enter') {
+                    ev.preventDefault();
+                    if (ev.shiftKey || !ops.enter) return;
+                    const t = textoDoEditavel(e), c = cursorEm(e);
+                    const pos = c ? Math.min(c.pos, t.length) : t.length;
+                    ops.enter(t.slice(0, pos), t.slice(pos));
+                } else if (ev.key === 'Backspace' && ops.voltar) {
+                    const c = cursorEm(e);
+                    if (c && c.colapsado && c.pos === 0) { ev.preventDefault(); ops.voltar(textoDoEditavel(e)); }
+                }
+            });
+            return e;
+        }
+        // Itens de uma lista (parágrafos, pontos-chave, decisões, próximos passos): Enter cria o seguinte; Backspace no começo junta com o
+        // anterior; item vazio some. `commit` recompõe o texto guardado quando a lista é só um pedaço dele (parágrafos).
+        function opsItem(n, arr, i, chave, ler, gravar, novo, commit = () => {}) {
+            return {
+                texto: v => { gravar(i, v); commit(); },
+                enter: (antes, depois) => {
+                    gravar(i, antes); arr.splice(i + 1, 0, novo(depois)); commit();
+                    focoPendente = { chave: `${chave}:${i + 1}`, pos: 0 }; resumoEditado(n); renderResumo();
+                },
+                voltar: atual => {
+                    if (!atual) { arr.splice(i, 1); focoPendente = { chave: `${chave}:${Math.max(0, i - 1)}`, pos: Infinity }; }
+                    else if (i > 0) {
+                        const ant = ler(i - 1);
+                        gravar(i - 1, ant + (ant && !/\s$/.test(ant) ? ' ' : '') + atual); arr.splice(i, 1);
+                        focoPendente = { chave: `${chave}:${i - 1}`, pos: ant.length };
+                    } else return;
+                    commit(); resumoEditado(n); renderResumo();
+                }
+            };
+        }
+        function pontoEditavel(n, arr, i, chave) {
+            const row = el('div', 'flex items-start gap-3 text-base leading-relaxed text-mirtilo/80');
+            row.appendChild(el('span', 'w-1.5 h-1.5 rounded-full bg-amendoa mt-2.5 shrink-0'));
+            row.appendChild(editavel(n, 'span', 'min-w-0 flex-1', arr[i], `${chave}:${i}`, opsItem(n, arr, i, chave, k => arr[k], (k, v) => { arr[k] = v; }, v => v)));
+            return row;
+        }
+        function desfazerRefazer() {   // um nível: volta ao resumo de antes do último Refazer
+            const n = nota();
+            if (!n.resumoAnterior) return;
+            n.resumo = n.resumoAnterior; delete n.resumoAnterior;
+            salvar(); renderResumo(); sincronizarNomes(n); aviso('Resumo anterior de volta');
+        }
+
+        async function gerarResumo(alvo = nota(), automatico = false) {
+            if (!iaLigada()) return aviso('IA desligada nos Ajustes', true);
+            if (!alvo.falas.length) return aviso('Grave algo primeiro', true);
+            if (gerandoIds.has(alvo.id)) return;
+            if (alvo.resumo?.editado) {   // texto que a pessoa mexeu: a IA nunca o troca sozinha; Refazer pergunta antes
+                if (automatico) return;
+                if (!confirm('Você editou este resumo. Refazer o substitui por um novo. O resumo atual fica guardado e dá para voltar com o botão de desfazer. Refazer?')) return;
+            }
+            gerandoIds.add(alvo.id);
+            if (alvo.id === state.atual) renderResumo();
+            try {
+                const r = await fetch('/api/resumo', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        titulo: alvo.titulo, notas: alvo.texto.split('\n').map(l => l.replace(/^\s*(#{1,6}\s+|[-*+>]\s+|\d+[.)]\s+)?(\[[ xX]\]\s+)?/, '').trim()).filter(Boolean),
+                        duracao: alvo.duracao || alvo.falas.reduce((m, f) => Math.max(m, f.fim), 0),
+                        falas: alvo.falas.map(f => ({ inicio: f.inicio, fim: f.fim, locutor: nomeDe(alvo, f.locutor), texto: f.texto })),
+                        destaques: destaquesPara(alvo)
+                    })
+                });
+                const inicio = await r.json();
+                if (!r.ok) throw Object.assign(new Error(inicio.erro || 'Falha'), { codigo: inicio.codigo });
+                // Gravações longas levam minutos (vários blocos): acompanha o trabalho em segundo plano.
+                let j;
+                do {
+                    await new Promise(ok => setTimeout(ok, 1500));
+                    j = await (await fetch('/api/jobs/' + inicio.job)).json();
+                    progressoIA[alvo.id] = { p: j.progresso || 0, msg: j.mensagem || '' };
+                    if (alvo.id === state.atual) renderResumo();
+                } while (j.status === 'processando');
+                if (j.status === 'erro') throw Object.assign(new Error(j.erro || 'Falha'), { codigo: j.codigo });
+                const { locutores, ...resumo } = j.resultado;   // os nomes dos locutores vêm de identificarLocutores(), não do resumo
+                if (alvo.resumo) alvo.resumoAnterior = alvo.resumo;   // um nível de desfazer
+                alvo.resumo = { ...resumo, em: Date.now() };
+                salvar();
+                if (!alvo.tituloEditado && !alvo.titulo.trim()) gerarTitulo(alvo);   // reforço: o título automático ainda não saiu
+                if (alvo.base) {   // notas anteriores a esta função (sem nome-base) não vão para as pastas
+                    fetch('/api/arquivar', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ base: alvo.base, titulo: alvo.titulo, duracao: duracaoDe(alvo), falas: falasComNomes(alvo), destaques: destaquesPara(alvo), resultado: Nomes.limparResumo(alvo.resumo) })
+                    }).then(x => x.json()).then(avisarLimite).catch(() => {});
+                }
+                aviso('Resumo pronto');
+            } catch (e) {
+                aviso(e.codigo === 'sem_chave' ? 'IA não configurada (.env)' : 'Falha ao gerar o resumo', true);
+                console.error(e);
+            } finally {
+                gerandoIds.delete(alvo.id); delete progressoIA[alvo.id];
+                if (alvo.id === state.atual) renderResumo();
+            }
+        }
+
+        // ---------- Nomes dos locutores (IA) ----------
+        // Etapa própria, logo após a transcrição (não depende do resumo). O nome sugerido entra no lugar de "Locutor N" e fica
+        // registrado em nota.sugestoes[rótulo] = { nome, confianca, tipo, evidencia }. Um nome em nota.nomes SEM sugestão
+        // correspondente foi definido pelo usuário (ou veio de antes desta função) e nunca é sobrescrito. nota.recusados[rótulo]
+        // guarda os nomes sugeridos que o usuário desfez, para a IA não os sugerir de novo.
+        const identificandoIds = new Set();
+        const notasDe = n => n.texto.split('\n').map(l => l.replace(/^\s*(#{1,6}\s+|[-*+>]\s+|\d+[.)]\s+)?(\[[ xX]\]\s+)?/, '').trim()).filter(Boolean);
+        const ehSugerido = (n, r) => !!n.sugestoes?.[r] && (n.nomes[r] || '').trim() === n.sugestoes[r].nome;
+
+        function recusarSugestao(n, rotulo) {
+            const s = n.sugestoes?.[rotulo];
+            if (!s) return;
+            n.recusados = n.recusados || {};
+            n.recusados[rotulo] = [...(n.recusados[rotulo] || []), s.nome];
+            delete n.sugestoes[rotulo];
+        }
+        function definirNomeManual(n, rotulo, v) {   // o usuário digitou (ou apagou) o nome
+            if (v !== (n.sugestoes?.[rotulo]?.nome || '')) recusarSugestao(n, rotulo);
+            if (v && v !== rotulo) n.nomes[rotulo] = v; else delete n.nomes[rotulo];
+        }
+        function desfazerSugestao(n, rotulo) {
+            recusarSugestao(n, rotulo); delete n.nomes[rotulo];
+            salvar(); renderTranscricao(); renderAvatares(); renderSintese(); renderResumo();
+            sincronizarNomes(n);
+        }
+        function marcaSugerido(n, rotulo) {
+            const s = n.sugestoes[rotulo], ev = s.evidencia || {};
+            const b = el('button', 'inline-flex items-center gap-0.5 text-[10px] font-medium text-amendoa/70 hover:text-framboesa transition-colors');
+            b.appendChild(el('i', 'ph-fill ph-sparkle text-[11px]'));
+            b.appendChild(el('span', null, 'sugerido pela IA'));
+            b.title = `Sugerido pela IA (confiança ${Math.round((s.confianca || 0) * 100)}%)` + (ev.trecho ? `\nEvidência em ${fmt(ev.horario || 0)}: “${ev.trecho}”` : '') + '\nClique para desfazer; ou clique no nome para editar.';
+            b.onclick = () => desfazerSugestao(n, rotulo);
+            return b;
+        }
+        function atualizarIdentificacao() {
+            const n = nota(); if (!n) return;
+            const ocupado = identificandoIds.has(n.id);
+            $('ident-estado').classList.toggle('hidden', !ocupado);
+            // O botão só aparece com IA configurada e algum locutor ainda sem nome.
+            $('ident-btn').classList.toggle('hidden', ocupado || !ia.configurada || !iaLigada() || !rotulos(n).some(r => !(n.nomes[r] || '').trim()));
+        }
+        // Reescreve o .txt da nota em gravacoes/ com os nomes atuais (silencioso; espera o /confirmar da gravação, que cria o arquivo).
+        async function sincronizarNomes(n) {
+            if (!n.base) return;
+            try {
+                await confirmacoes[n.id];
+                await fetch('/api/arquivar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base: n.base, titulo: n.titulo, duracao: duracaoDe(n), falas: falasComNomes(n), destaques: destaquesPara(n), resultado: Nomes.limparResumo(n.resumo) || {} }) });
+            } catch {}
+        }
+        // Um locutor mudou de nome: o resumo e o título automático trocam "Locutor N" e o nome anterior pelo novo, só como palavra
+        // inteira e sem chamar a IA. Edições do usuário no resumo ficam: só as palavras do nome mudam. A nota escrita à mão não é tocada.
+        function propagarNome(n, rotulo, antigos, novo) {
+            novo = (novo || '').trim();
+            if (!novo || novo === rotulo) return false;
+            n.apelidos = n.apelidos || {};
+            n.apelidos[rotulo] = [...new Set([...(n.apelidos[rotulo] || []), ...antigos])].filter(a => a !== novo);
+            let mudou = false;
+            const r = Nomes.trocarNoResumo(n.resumo, antigos, novo);
+            if (r.mudou) { n.resumo = r.resumo; mudou = true; }
+            if (n.tituloAuto && !n.tituloEditado) {
+                const t = Nomes.trocar(n.titulo || '', antigos, novo);
+                if (t !== n.titulo) {
+                    n.titulo = t; mudou = true;
+                    if (n.id === state.atual) { $('note-title').innerText = t; renderMenu(); }
+                }
+            }
+            return mudou;
+        }
+
+        // ---------- Identificação pelo chat ----------
+        // Pergunta qual locutor é quando dois falavam juntos no instante do comando. Devolve o rótulo ou null (ignorar).
+        function perguntarLocutor(n, ident, candidatos) {
+            return new Promise(ok => {
+                const fundo = el('div', 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-mirtilo/30');
+                const caixa = el('div', 'w-full max-w-sm rounded-2xl bg-white p-5 shadow-[0_12px_40px_rgb(38,47,58,0.18)] space-y-3');
+                caixa.setAttribute('role', 'dialog'); caixa.setAttribute('aria-modal', 'true');
+                caixa.appendChild(el('p', 'text-sm font-medium text-mirtilo', `Quem é ${ident.nome}? Dois locutores falavam em ${fmt(ident.t)}.`));
+                const fechar = v => { fundo.remove(); ok(v); };
+                candidatos.forEach(r => {
+                    const ultima = [...n.falas].reverse().find(f => f.locutor === r && f.inicio <= ident.t + 1.5);
+                    const b = el('button', 'w-full text-left rounded-xl bg-aveia/70 px-3 py-2 hover:bg-amendoa/15 transition-colors');
+                    b.appendChild(el('span', 'block text-sm font-semibold text-mirtilo', nomeDe(n, r)));
+                    if (ultima) b.appendChild(el('span', 'block text-xs text-mirtilo/55', ultima.texto.length > 120 ? '…' + ultima.texto.slice(-120) : ultima.texto));
+                    b.onclick = () => fechar(r);
+                    caixa.appendChild(b);
+                });
+                const ign = el('button', 'text-xs font-medium text-mirtilo/50 hover:text-mirtilo', 'Ignorar');
+                ign.onclick = () => fechar(null);
+                caixa.appendChild(ign);
+                fundo.appendChild(caixa);
+                document.body.appendChild(fundo);
+            });
+        }
+        // Dá o nome a um locutor. Nome que o usuário definiu à mão não é trocado sem confirmar; nome sugerido pela IA é.
+        async function atribuirNome(n, rotulo, nome) {
+            const atual = (n.nomes[rotulo] || '').trim();
+            const outro = rotulos(n).find(r => r !== rotulo && nomeDe(n, r).toLowerCase() === nome.toLowerCase());
+            if (outro) {
+                if (!confirm(`"${nome}" já é outro locutor. São a mesma pessoa? Mesclar os dois.`)) return false;
+                mesclarLocutores(n, rotulo, outro);
+                return true;
+            }
+            const manual = atual && !ehSugerido(n, rotulo);
+            if (manual && atual.toLowerCase() !== nome.toLowerCase() && !confirm(`${rotulo} já se chama "${atual}", nome que você definiu. Trocar por "${nome}"?`)) return false;
+            const antigos = Nomes.nomesDoRotulo(n, rotulo);
+            definirNomeManual(n, rotulo, nome);   // vira nome do usuário: a IA não o sobrescreve
+            propagarNome(n, rotulo, antigos, nome);
+            return true;
+        }
+        async function aplicarIdentificacoes(n, desde) {
+            const pend = (n.identificacoes || []).filter(i => i.estado === 'pendente' && i.t >= desde - 0.001);
+            if (!pend.length) return;
+            let feitas = 0;
+            for (const i of pend) {
+                let rotulo = null;
+                if (i.quando === 'rotulo') rotulo = rotulos(n).includes(i.rotulo) ? i.rotulo : null;
+                else {
+                    const r = Nomes.acharLocutor(n.falas, i.t, i.quando);
+                    if (r.estado === 'ok') rotulo = r.rotulo;
+                    else if (r.estado === 'ambiguo') rotulo = await perguntarLocutor(n, i, r.candidatos);
+                    else aviso(`Não há fala perto de ${fmt(i.t)} para identificar "${i.nome}"`, true);
+                }
+                if (rotulo && await atribuirNome(n, rotulo, i.nome)) { i.estado = 'aplicada'; i.rotulo = rotulo; feitas++; }
+                else i.estado = 'ignorada';
+            }
+            salvar();
+            if (n.id === state.atual) { renderTranscricao(); renderAvatares(); renderSintese(); renderResumo(); renderChat(); }
+            if (feitas) { sincronizarNomes(n); aviso(`${feitas} ${feitas === 1 ? 'locutor identificado' : 'locutores identificados'} pelo chat`); }
+        }
+
+        // Devolve a lista de rótulos que receberam nome. Nunca lança: sem chave ou com falha, os locutores seguem como "Locutor N".
+        async function identificarLocutores(alvo = nota(), manual = false) {
+            if (!alvo.falas.length || identificandoIds.has(alvo.id) || !ia.configurada || !iaLigada()) return [];
+            const fixos = {};
+            rotulos(alvo).forEach(r => { const v = (alvo.nomes[r] || '').trim(); if (v) fixos[r] = v; });   // manuais e já sugeridos: não reavaliar
+            if (rotulos(alvo).every(r => fixos[r])) return [];
+            identificandoIds.add(alvo.id); atualizarIdentificacao();
+            const aplicados = [];
+            try {
+                const resp = await fetch('/api/locutores', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        titulo: alvo.titulo, notas: notasDe(alvo), nomes_fixos: fixos, recusados: alvo.recusados || {},
+                        falas: alvo.falas.map(f => ({ inicio: f.inicio, fim: f.fim, locutor: f.locutor, texto: f.texto }))
+                    })
+                });
+                const j = await resp.json();
+                for (const [rotulo, s] of Object.entries(j.sugestoes || {})) {
+                    // Pode ter mudado enquanto a IA pensava: respeita o que o usuário definiu nesse meio tempo.
+                    if (!rotulos(alvo).includes(rotulo) || (alvo.nomes[rotulo] || '').trim() || !s.nome) continue;
+                    const manuais = rotulos(alvo).filter(o => o !== rotulo && (alvo.nomes[o] || '').trim() && !ehSugerido(alvo, o));
+                    if (manuais.some(o => nomeDe(alvo, o).toLowerCase() === s.nome.toLowerCase())) continue;
+                    const antigos = Nomes.nomesDoRotulo(alvo, rotulo);
+                    alvo.nomes[rotulo] = s.nome;
+                    propagarNome(alvo, rotulo, antigos, s.nome);
+                    (alvo.sugestoes = alvo.sugestoes || {})[rotulo] = { nome: s.nome, confianca: s.confianca, tipo: s.tipo, evidencia: s.evidencia, em: Date.now() };
+                    aplicados.push(rotulo);
+                }
+                if (aplicados.length) { salvar(); sincronizarNomes(alvo); }
+                if (aplicados.length) aviso(`${aplicados.length} ${aplicados.length === 1 ? 'nome sugerido' : 'nomes sugeridos'} pela IA`);
+                else if (manual) aviso(j.motivo === 'falha' ? 'Não foi possível identificar agora' : 'Nenhum nome claro na conversa', j.motivo === 'falha');
+            } catch (e) {
+                console.warn('Identificação de locutores indisponível', e);
+                if (manual) aviso('Não foi possível identificar agora', true);
+            } finally {
+                identificandoIds.delete(alvo.id);
+                if (alvo.id === state.atual) {
+                    if (aplicados.length) { renderTranscricao(); renderAvatares(); renderSintese(); renderResumo(); }
+                    else atualizarIdentificacao();
+                }
+            }
+            return aplicados;
+        }
+
+        // ---------- Título automático (IA) ----------
+        // Regras: só nomeia nota com título padrão (vazio) ou cujo título foi a IA que escreveu (tituloAuto) e que o usuário
+        // nunca editou (tituloEditado). Uma nova gravação na nota refaz o título enquanto for assim. Falha = continua "Nova nota".
+        const tituloSeq = {};            // id da nota -> nº da última chamada (só a mais recente vale)
+        const confirmacoes = {};         // id da nota -> promessa do /confirmar (o arquivo .txt precisa existir antes de reescrevê-lo)
+        const tituloNovo = new Set();    // notas cujo título acabou de chegar (para a transição)
+        const notasDoTitulo = n => n.texto.split('\n').map(l => l.replace(/^\s*(#{1,6}\s+|[-*+>]\s+|\d+[.)]\s+)?(\[[ xX]\]\s+)?/, '').trim()).filter(Boolean);
+        async function gerarTitulo(alvo) {
+            if (!ia.configurada || !iaLigada() || !alvo.falas.length || alvo.tituloEditado) return;
+            if (alvo.titulo.trim() && !alvo.tituloAuto) return;
+            const seq = tituloSeq[alvo.id] = (tituloSeq[alvo.id] || 0) + 1, antes = alvo.titulo;
+            const falas = falasComNomes(alvo);   // só o começo e o fim: o servidor limita o resto
+            try {
+                const r = await fetch('/api/titulo', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notas: notasDoTitulo(alvo), falas: falas.length > 60 ? [...falas.slice(0, 45), ...falas.slice(-15)] : falas })
+                });
+                const { titulo } = await r.json();
+                // Corrida: descarta se o usuário mexeu no título (ou está com o cursor nele), se chegou resposta mais nova ou se a nota sumiu.
+                if (!titulo || !state.notes.includes(alvo) || tituloSeq[alvo.id] !== seq || alvo.tituloEditado || alvo.titulo !== antes) return;
+                if (alvo.id === state.atual && document.activeElement === $('note-title')) return;
+                alvo.titulo = titulo; alvo.tituloAuto = true; salvar();
+                tituloNovo.add(alvo.id); setTimeout(() => tituloNovo.delete(alvo.id), 1500);
+                if (alvo.id === state.atual) {
+                    const t = $('note-title'); renderizar();
+                    t.classList.remove('titulo-novo'); void t.offsetWidth; t.classList.add('titulo-novo');
+                    setTimeout(() => t.classList.remove('titulo-novo'), 800);
+                } else renderMenu();
+                // O nome-base dos arquivos não muda; só os cabeçalhos (# título) de Transcrições/ e Análises/ são reescritos.
+                if (alvo.base) {
+                    await confirmacoes[alvo.id];
+                    if (!state.notes.includes(alvo)) return;
+                    fetch('/api/arquivar', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ base: alvo.base, titulo: alvo.titulo, duracao: duracaoDe(alvo), falas: falasComNomes(alvo), destaques: destaquesPara(alvo), resultado: Nomes.limparResumo(alvo.resumo) || {} })
+                    }).catch(() => {});
+                }
+            } catch (e) { console.warn('Título automático indisponível', e); }
+        }
+
+        // ---------- Início ----------
+        if (!nota()) { if (!state.notes.length) criarNota(); else state.atual = state.notes[state.notes.length - 1].id; }
+        aplicarMenu();
+        renderizar();
+        carregarIA();
+        mostrarPendentes();
+        // Gravação interrompida (aba fechada, crash, bateria): os pedaços guardados viram "pendente" para tentar de novo.
+        Mic.recuperar(reg => BD.guardar(reg)).then(n => { if (n) { mostrarPendentes(); aviso('Recuperei uma gravação interrompida', false); } });
+    </script>
+</body>
+</html>
