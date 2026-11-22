@@ -521,11 +521,11 @@ def transcrever(
     diarizacao: bool = True,
     num_locutores: int | None = None,
     progresso: Callable[[float, str], None] | None = None,
-    motor: str | None = None,       # "local" (padrão) | "groq"; ver motores.py
+    motor: str | None = None,       # só "local"; ver motores.py
     meta: dict | None = None,       # recebe {"motor": usado, "avisos": [...], "lacunas": [...]}
     parcial: Callable[[list[Fala]], None] | None = None,   # recebe falas provisórias durante a transcrição
     canais: str | None = None,      # "mic+sistema": arquivo estéreo (esq = microfone, dir = áudio do computador); ver canais.py
-    glossario: str | None = None,   # nomes e termos curtos para o Whisper local (`hotwords`); a Groq não recebe
+    glossario: str | None = None,   # nomes e termos curtos para o Whisper local (`hotwords`)
 ) -> list[Fala]:
     emitir = progresso or (lambda p, m: None)
     ultimo = [0.0]

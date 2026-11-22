@@ -185,15 +185,7 @@
             <label class="block">
                 <span class="text-[11px] font-semibold uppercase tracking-wider text-amendoa">Glossário (opcional)</span>
                 <textarea id="cfg-glossario" rows="2" maxlength="600" class="mt-1 w-full rounded-xl bg-aveia/70 px-3 py-2 text-sm outline-none border border-transparent focus:border-amendoa/40 resize-y" placeholder="Nomes e termos curtos, separados por vírgula ou linha"></textarea>
-                <span class="block mt-0.5 text-[11px] leading-snug text-mirtilo/50">Ajuda o Whisper local a acertar a grafia. Poucos termos; não corrige trechos perdidos. A Groq não usa.</span>
-            </label>
-            <label class="block">
-                <span class="text-[11px] font-semibold uppercase tracking-wider text-amendoa">Motor de transcrição</span>
-                <select id="cfg-motor" class="mt-1 w-full rounded-xl bg-aveia/70 px-3 py-2 text-sm outline-none border border-transparent focus:border-amendoa/40">
-                    <option value="local">Local · privado (padrão)</option>
-                    <option value="groq">Groq · nuvem (envia o áudio)</option>
-                </select>
-                <p id="motor-aviso" class="hidden mt-1.5 text-[11px] leading-snug text-framboesa"></p>
+                <span class="block mt-0.5 text-[11px] leading-snug text-mirtilo/50">Ajuda o Whisper local a acertar a grafia. Poucos termos; não corrige trechos perdidos.</span>
             </label>
             <label class="flex items-start gap-2.5 cursor-pointer">
                 <input id="cfg-aovivo" type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-amendoa cursor-pointer">
@@ -590,7 +582,7 @@
             a.style.background = corDe(n, rotulo);
             return a;
         }
-        const nomeMotor = m => ({ local: 'Whisper local', groq: 'Groq (nuvem)', 'groq+local': 'Groq + local' }[m] || m);
+        const nomeMotor = () => 'Whisper local';   // notas antigas podem trazer outro valor em `motor`: tudo é local
         let toastTimer;
         function aviso(msg, erro) {
             $('toast-text').textContent = msg;
@@ -1224,7 +1216,7 @@
             mk('ph-clock', fmt(dur), base, 'text-amendoa');
             mk('ph-users', `${r.length} ${r.length === 1 ? 'locutor' : 'locutores'}`, base, 'text-amendoa');
             mk('ph-chat-circle-text', `${n.falas.length} falas`, base, 'text-amendoa');
-            if (n.motor) mk(n.motor === 'local' ? 'ph-lock-simple' : 'ph-cloud', nomeMotor(n.motor), base, 'text-amendoa');
+            if (n.motor) mk('ph-lock-simple', nomeMotor(n.motor), base, 'text-amendoa');
             r.sort((a, b) => tempo[b] - tempo[a]).forEach(l => {
                 const pct = Math.round(tempo[l] / total * 100);
                 const row = el('div', 'flex items-center gap-3');
@@ -1437,46 +1429,10 @@
             e.stopPropagation();
             $('ajustes').classList.toggle('hidden');
             listarMicrofones();
-            carregarMotores();
             carregarIA();   // atualiza o uso mensal (interruptor da IA automática)
         }
 
-        // Motor de transcrição: local por padrão (privado). Groq é opt-in e ENVIA O ÁUDIO à nuvem.
-        let motoresInfo = null;
-        function mostrarMotor() {
-            const av = $('motor-aviso');
-            let t = '';
-            if ($('cfg-motor').value === 'groq') {
-                t = 'O áudio das gravações é enviado à Groq (EUA) para transcrever. Se a cota gratuita acabar ou houver falha, o trecho restante é transcrito localmente.';
-                if (motoresInfo && motoresInfo.groq_uso_hora_s) t += ` Enviado na última hora: ~${Math.round(motoresInfo.groq_uso_hora_s / 60)} de ~${Math.round(motoresInfo.groq_limite_hora_s / 60)} min.`;
-            }
-            av.textContent = t; av.classList.toggle('hidden', !t);
-        }
-        async function carregarMotores() {
-            try { motoresInfo = await (await fetch('/api/motores')).json(); } catch { return; }
-            const g = motoresInfo.motores.find(x => x.id === 'groq');
-            const opt = $('cfg-motor').querySelector('option[value=groq]');
-            opt.disabled = !g.disponivel;
-            opt.textContent = 'Groq · nuvem (envia o áudio)' + (g.disponivel ? '' : ' · sem GROQ_API_KEY no .env');
-            if (!state.cfg.motor) state.cfg.motor = motoresInfo.padrao;
-            if (state.cfg.motor === 'groq' && !g.disponivel) state.cfg.motor = 'local';
-            $('cfg-motor').value = state.cfg.motor;
-            mostrarMotor(); mostrarSelo();
-        }
-        $('cfg-motor').addEventListener('change', () => {
-            if ($('cfg-motor').value === 'groq' && !confirm('Usar a Groq (nuvem)?\n\nO áudio das gravações sai deste computador e vai para a Groq (EUA). A política da sua empresa pode proibir isso. Com o motor local nada sai daqui.\n\nContinuar?')) $('cfg-motor').value = 'local';
-            state.cfg.motor = $('cfg-motor').value; salvar(); mostrarMotor(); mostrarSelo();
-        });
-        // Selo fixo no cabeçalho: onde a transcrição acontece.
-        function mostrarSelo() {
-            const nuvem = state.cfg.motor === 'groq';
-            $('selo-motor-rotulo').textContent = nuvem ? 'Nuvem' : 'Local';
-            $('selo-motor-icone').className = 'ph text-xs ' + (nuvem ? 'ph-cloud' : 'ph-desktop');
-            $('selo-motor').className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ' + (nuvem ? 'bg-framboesa/10 text-framboesa' : 'bg-mirtilo/5 text-mirtilo/60');
-            $('selo-motor').title = nuvem ? 'Transcrição na nuvem: o áudio das gravações é enviado à Groq.' : 'Transcrição local: o áudio é transcrito neste computador e não sai dele.';
-        }
-        mostrarSelo();
-        carregarMotores();
+        // A transcrição é sempre local: o selo fixo do cabeçalho ("Local") não muda.
 
         // Lista os microfones. Os nomes só aparecem depois que o navegador libera o acesso.
         // (lógica em static/mic.js: rótulos, dispositivo salvo que sumiu, erros em pt-BR)
@@ -1533,7 +1489,16 @@
             atualizarIaAuto(); renderResumo(); atualizarIdentificacao();
             if (!e.target.checked) aviso('IA desligada: nenhum texto sai deste computador');
         });
+        function sincronizarInterruptorPainel() {
+            document.querySelectorAll('.priv-ia').forEach(sw => {
+                const on = iaLigada(), bloqueada = !!ia.uso?.bloqueada;
+                sw.setAttribute('aria-checked', String(on)); sw.disabled = bloqueada;
+                sw.className = sw.className.replace(/ ?bg-(framboesa|mirtilo\/20)/g, '') + (on ? ' bg-framboesa' : ' bg-mirtilo/20');
+                sw.firstElementChild.className = sw.firstElementChild.className.replace(/ ?(translate-x-\d+|translate-x-0)/g, '') + (on ? ' translate-x-3.5' : ' translate-x-0.5');
+            });
+        }
         function atualizarIaAuto() {
+            sincronizarInterruptorPainel();
             const bloqueada = !!ia.uso?.bloqueada;
             $('cfg-iaauto').checked = iaLigada();
             $('cfg-iaauto').disabled = bloqueada;
@@ -1557,29 +1522,32 @@
                 if (!r.ok) throw new Error('HTTP ' + r.status);
                 p = await r.json();
             } catch { box.replaceChildren(el('p', 'text-framboesa', 'Não foi possível carregar.')); return; }
+            // Duas colunas: Recurso e Onde. A IA é uma linha só, com o interruptor único acima do rótulo "Nuvem".
             const tab = el('table', 'w-full text-left');
             const cab = el('tr', 'text-[10px] uppercase tracking-wider text-mirtilo/40');
-            ['Recurso', 'Onde', 'Sai'].forEach(t => cab.appendChild(el('th', 'font-medium pb-1 pr-2', t)));
+            ['Recurso', 'Onde'].forEach((t, i) => cab.appendChild(el('th', 'font-medium pb-1' + (i ? ' text-center w-20' : ' pr-2'), t)));
             tab.appendChild(cab);
             (p.recursos || []).forEach(rc => {
-                const nuvem = rc.onde === 'nuvem', nada = String(rc.envia).toLowerCase() === 'nada';
+                const nuvem = rc.onde === 'nuvem';
                 const tr = el('tr', 'border-t border-mirtilo/5');
-                tr.appendChild(el('td', 'py-1 pr-2 align-top break-words', rc.nome));
-                const onde = el('td', 'py-1 pr-2 align-top');
-                onde.appendChild(el('span', 'inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ' + (nuvem ? 'bg-framboesa/10 text-framboesa' : 'bg-amendoa/10 text-amendoa'), nuvem ? 'Nuvem' : 'Local'));
-                tr.appendChild(onde);
-                tr.appendChild(el('td', 'py-1 align-top ' + (nada ? 'text-mirtilo/40' : 'text-mirtilo/80'), rc.para ? `${rc.envia} para ${rc.para}` : rc.envia));
+                const nome = el('td', 'py-1.5 pr-2 align-middle break-words', rc.nome);
+                const onde = el('td', 'py-1.5 align-middle text-center');
+                if (rc.interruptor) {
+                    const u = p.ia;
+                    if (u) nome.appendChild(el('span', 'block text-[10px] text-mirtilo/40' + (u.aviso || u.bloqueada ? ' text-framboesa' : ''), `${u.chamadas} de ${u.teto} neste mês` + (u.bloqueada ? ' · bloqueada' : '')));
+                    const sw = el('button', 'priv-ia relative inline-flex h-4 w-7 items-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amendoa disabled:cursor-not-allowed disabled:opacity-50');
+                    sw.type = 'button'; sw.setAttribute('role', 'switch'); sw.setAttribute('aria-label', 'IA (título, resumo e nomes)');
+                    sw.appendChild(el('span', 'priv-ia-bola inline-block h-3 w-3 rounded-full bg-white shadow transition-transform'));
+                    sw.addEventListener('click', () => { if (sw.disabled) return; $('cfg-iaauto').checked = !iaLigada(); $('cfg-iaauto').dispatchEvent(new Event('change')); });
+                    onde.appendChild(sw);
+                    onde.appendChild(el('span', 'mt-0.5 block mx-auto w-fit px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-framboesa/10 text-framboesa', 'Nuvem'));
+                } else {
+                    onde.appendChild(el('span', 'inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ' + (nuvem ? 'bg-framboesa/10 text-framboesa' : 'bg-amendoa/10 text-amendoa'), nuvem ? 'Nuvem' : 'Local'));
+                }
+                tr.append(nome, onde);
                 tab.appendChild(tr);
             });
-            const partes = [tab];
-            const u = p.ia;
-            if (u) {
-                const linha = el('p', u.aviso || u.bloqueada ? 'text-framboesa' : '');
-                linha.appendChild(el('span', 'font-medium', 'IA no mês: '));
-                linha.append(`${u.chamadas} de ${u.teto} chamadas` + (u.bloqueada ? '. Bloqueada.' : ''));
-                partes.push(linha);
-            }
-            if (p.ia_aviso) partes.push(el('p', 'text-mirtilo/60', p.ia_aviso));   // para onde o texto vai e o que isso significa
+            const partes = [tab, el('p', 'text-mirtilo/50', 'Com a IA ligada, só o texto da gravação vai para a nuvem; o áudio nunca sai.')];
             const g = p.gravacoes;
             if (g) {
                 const linha = el('p');
@@ -1596,6 +1564,7 @@
                 partes.push(linha);
             }
             box.replaceChildren(...partes);
+            sincronizarInterruptorPainel();
         }
         $('priv').addEventListener('toggle', () => { if ($('priv').open) carregarPrivacidade(); });
 
@@ -1917,7 +1886,7 @@
             const av = { id: null, notaId, seq: 0, bytes: 0, pedacos: 0, falhou: false, semTexto: false, desde: 0, timer: null, consultando: false, cadeia: null };
             av.cadeia = fetch('/api/aovivo', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ idioma: state.cfg.idioma, locutores: state.cfg.locutores || 0, motor: state.cfg.motor || '', glossario: state.cfg.glossario || '', ext, ...(canais ? { canais } : {}) }),
+                body: JSON.stringify({ idioma: state.cfg.idioma, locutores: state.cfg.locutores || 0, glossario: state.cfg.glossario || '', ext, ...(canais ? { canais } : {}) }),
             }).then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
                 .then(j => {
                     if (!j.ao_vivo || !j.sessao) throw new Error(j.motivo || 'recusado pelo servidor');
@@ -2029,7 +1998,6 @@
             if (canais) fd.append('canais', canais);   // layout do arquivo (mic+sistema = estéreo); importações e gravações só com microfone não enviam
             fd.append('idioma', state.cfg.idioma);
             fd.append('locutores', state.cfg.locutores || 0);
-            fd.append('motor', state.cfg.motor || '');
             fd.append('glossario', state.cfg.glossario || '');
             const resp = await fetch('/api/transcrever', { method: 'POST', body: fd });
             if (!resp.ok) throw new Error('O servidor recusou o áudio (' + resp.status + ')');
@@ -2125,8 +2093,8 @@
                     body: JSON.stringify({ base: baseDe(alvo), parte: alvo.partes, titulo: alvo.titulo, duracao: duracaoDe(alvo), falas: falasComNomes(alvo), destaques: destaquesPara(alvo) })
                 }).then(x => x.json()).then(avisarLimite).catch(() => {});
                 if (alvo.id === state.atual) renderizar();
-                if (r.motor) { alvo.motor = r.motor; salvar(); }
-                aviso(r.falas.length ? 'Transcrição pronta' + (r.motor && r.motor !== 'local' ? ' · ' + nomeMotor(r.motor) : '') : 'Nenhuma fala detectada', !r.falas.length);
+                if (r.motor) { alvo.motor = 'local'; salvar(); }
+                aviso(r.falas.length ? 'Transcrição pronta' : 'Nenhuma fala detectada', !r.falas.length);
                 if (r.avisos && r.avisos.length) setTimeout(() => { aviso(r.avisos.join(' '), true); $('toast').title = r.avisos.join('\n'); }, 2000);
                 // Gravação em dois canais: o microfone é sempre o Locutor 1. Só avisa (uma vez); renomear fica com o usuário.
                 if (r.locutor_local && r.falas.length && !state.cfg.avisoLocutorLocal && !(alvo.nomes[r.locutor_local] || '').trim()) {

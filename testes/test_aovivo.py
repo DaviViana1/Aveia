@@ -244,7 +244,6 @@ class PlanejamentoTest(unittest.TestCase):
 
 class RotasTest(Base):
     def test_recusas(self):
-        self.assertFalse(self.abrir(motor="groq")["ao_vivo"])
         with mock.patch.dict(os.environ, {"AVEIA_PREPROC": "hpf,norm"}):
             r = self.abrir()
             self.assertFalse(r["ao_vivo"])

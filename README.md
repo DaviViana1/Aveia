@@ -11,7 +11,7 @@ App local de notas por voz: grava ou importa áudio, transcreve e separa as pess
 
 1. **Baixe**: neste repositório, **Code > Download ZIP**, e extraia (ou `git clone https://github.com/DaviViana1/Aveia.git`).
 2. **Abra** a pasta e dê dois cliques em **`iniciar.bat`**. Na primeira vez ele confere o computador, instala o Python 3.12 pelo winget se você não tiver (pede confirmação), cria o ambiente e instala as bibliotecas (alguns minutos).
-3. O navegador abre em `http://127.0.0.1:8765`. Na primeira vez o app baixa o modelo de voz (cerca de 1,6 GB; precisa de internet e de uns 6 GB livres).
+3. O navegador abre em `http://127.0.0.1:8765` (se essa porta estiver com outro programa, o Aveia usa a próxima livre e mostra o endereço na janela; abrir de novo a mesma pasta só reabre o navegador). Na primeira vez o app baixa o modelo de voz (cerca de 1,6 GB; precisa de internet e de uns 6 GB livres).
 4. Em **Ajustes > Seu computador**, toque em **Testar este computador**: ele mede a velocidade real e diz se dá para transcrever ao vivo.
 
 Para encerrar: feche a janela preta ou use `parar.bat`. Para atualizar: `atualizar.bat` (com `git clone`) ou baixe o ZIP novo.
@@ -43,12 +43,11 @@ Gravar: botão vermelho. Importar: ícone de upload. Renomear locutor: clique no
 | Recurso | Onde roda | O que sai da máquina |
 |---|---|---|
 | Transcrição e separação de locutores | Local | nada |
-| Transcrição pela Groq (opt-in em Ajustes) | Nuvem | áudio |
 | Resumo, título e nomes por IA (chave no `.env`) | Nuvem (Google Gemini) | texto |
 
 - O painel **Privacidade** (Ajustes) mostra essa tabela com o uso real, o uso mensal da IA e os arquivos no disco.
 - **IA: um interruptor só** (Ajustes), **ligado por padrão**. Desligado = nenhuma chamada de IA (resumo, título, nomes dos locutores e escolha do trecho do destaque; o destaque usa a janela dos 10 s e o botão Gerar fica inativo). Ligado = tudo ativo, sem outro botão. `AVEIA_IA=0` desliga a IA no servidor inteiro. O aviso de privacidade (para onde o texto vai) fica só nos Ajustes (ícone de configurações), nunca solto na tela.
-- **IA = Google Gemini** (`GEMINI_API_KEY`), modelo padrão `gemini-3.1-flash-lite` (o mais barato e o mais estável dos dois em 3 repetições de 33 casos de nomes e 9 de destaques: veja `testes/comparar_modelos_gemini.py`; cerca de US$ 0,0006 por chamada). **Privacidade:** com a IA ligada, o texto da gravação vai ao Google. Com uma chave de **plano pago**, pela política do Google o texto não é usado para melhorar os produtos dele. Na camada gratuita seria diferente; com uma chave gratuita, defina `AVEIA_GEMINI_PLANO=gratuito` para o aviso do app dizer isso. Sem `GEMINI_API_KEY`, o Vercel AI Gateway (`AI_GATEWAY_API_KEY`) serve de reserva. Dentro da vault, o app lê do `.env` dela só as chaves `GEMINI_API_KEY`, `AI_GATEWAY_API_KEY` e `GROQ_API_KEY`.
+- **IA = Google Gemini** (`GEMINI_API_KEY`), modelo padrão `gemini-3.1-flash-lite` (o mais barato e o mais estável dos dois em 3 repetições de 33 casos de nomes e 9 de destaques: veja `testes/comparar_modelos_gemini.py`; cerca de US$ 0,0006 por chamada). **Privacidade:** com a IA ligada, o texto da gravação vai ao Google. Com uma chave de **plano pago**, pela política do Google o texto não é usado para melhorar os produtos dele. Na camada gratuita seria diferente; com uma chave gratuita, defina `AVEIA_GEMINI_PLANO=gratuito` para o aviso do app dizer isso. Sem `GEMINI_API_KEY`, o Vercel AI Gateway (`AI_GATEWAY_API_KEY`) serve de reserva. Dentro da vault, o app lê do `.env` dela só as chaves `GEMINI_API_KEY` e `AI_GATEWAY_API_KEY`.
 - **Teto de IA:** `AVEIA_IA_TETO_MES` (padrão 300 chamadas por mês; 0 bloqueia). Aviso a 80%.
 - **Apagar tudo** e **Exportar tudo** (Ajustes > Privacidade). Retenção: `AVEIA_RETENCAO_DIAS` (padrão 30) só marca o que passou do prazo; nada é apagado sozinho.
 - Gravar o áudio do computador pede um aviso na primeira vez: avise os participantes. A regra legal que vale para você: consulte um advogado.
@@ -68,18 +67,17 @@ Gravar: botão vermelho. Importar: ícone de upload. Renomear locutor: clique no
 ## Testes
 
 ```
-.venv\Scripts\python -m unittest testes.test_melhorias testes.test_canais testes.test_aovivo testes.test_destaques testes.test_pipeline testes.test_titulo testes.test_diarizacao testes.test_lacunas testes.test_glossario testes.nomes.test_validacao testes.test_chat_flutuante testes.test_ia_gemini testes.test_destaque_escopo testes.test_interruptor_ia testes.test_identificacao testes.test_nomes_js testes.test_resumo_editavel
+.venv\Scripts\python -m unittest testes.test_melhorias testes.test_canais testes.test_aovivo testes.test_destaques testes.test_pipeline testes.test_titulo testes.test_diarizacao testes.test_lacunas testes.test_glossario testes.nomes.test_validacao testes.test_chat_flutuante testes.test_ia_gemini testes.test_destaque_escopo testes.test_interruptor_ia testes.test_identificacao testes.test_nomes_js testes.test_resumo_editavel testes.test_perfil_pc testes.test_porta
 ```
 
-372 testes rodam e passam (2026-11-21); 58 pulam sozinhos porque dependem de áudios de referência e de modelos que não vão no repositório (as gravações de teste do autor ficam de fora). Para rodar todos: `.venv\Scripts\python -m unittest discover -s testes -p "test_*.py"`. Uma fala só termina por troca de locutor (timbre), por pausa de 30 s ou mais, ou ao passar de 5 min (`PAUSA_NOVA_FALA`, `FALA_MAX_S` em `transcritor/pipeline.py`). Não há teste automático da interface; a conferência de 2026-11-20 foi feita à mão no navegador (painel, VTT, apagar tudo, aviso do áudio do computador, 375 px sem rolagem horizontal).
+377 testes rodam e passam (2026-11-21); 58 pulam sozinhos porque dependem de áudios de referência e de modelos que não vão no repositório (as gravações de teste do autor ficam de fora). Para rodar todos: `.venv\Scripts\python -m unittest discover -s testes -p "test_*.py"`. Uma fala só termina por troca de locutor (timbre), por pausa de 30 s ou mais, ou ao passar de 5 min (`PAUSA_NOVA_FALA`, `FALA_MAX_S` em `transcritor/pipeline.py`). Não há teste automático da interface; a conferência de 2026-11-20 foi feita à mão no navegador (painel, VTT, apagar tudo, aviso do áudio do computador, 375 px sem rolagem horizontal).
 
 ## Variáveis (`.env` ou ambiente)
 
-Chaves (só o usuário preenche; ver `.env.example`): `GEMINI_API_KEY` (IA), `GROQ_API_KEY` (transcrição na nuvem, opcional) e, como reserva da IA, `AI_GATEWAY_API_KEY`.
+Chaves (só o usuário preenche; ver `.env.example`): `GEMINI_API_KEY` (IA) e, como reserva da IA, `AI_GATEWAY_API_KEY`.
 
 | Variável | Efeito |
 |---|---|
-| `AVEIA_MOTOR` | motor padrão (`local` ou `groq`) |
 | `AVEIA_DIARIZACAO` | `novo` (padrão) ou `antigo` |
 | `AVEIA_DIAR_AOVIVO` | `0` desliga a diarização durante a gravação |
 | `AVEIA_LACUNAS` | `0` desliga a retranscrição de lacunas |
@@ -93,7 +91,7 @@ Chaves (só o usuário preenche; ver `.env.example`): `GEMINI_API_KEY` (IA), `GR
 | `AVEIA_GEMINI_PLANO` | `pago` (padrão) ou `gratuito`: só muda o aviso de privacidade |
 | `AVEIA_IA_RACIOCINIO` | `minimal` (padrão), `low`, `medium` ou `high` (`reasoning_effort` do Gemini) |
 | `AVEIA_MODELO_IA`, `AVEIA_MODELO_TITULO`, `AVEIA_MODELO_LOCUTORES`, `AVEIA_IA_URL` | modelo por recurso (valem nos dois provedores) e endereço da IA |
-| `AVEIA_ENV_EXTRA` | caminho de um `.env` fora da pasta do app, de onde só `GEMINI_API_KEY`, `AI_GATEWAY_API_KEY` e `GROQ_API_KEY` são lidas |
+| `AVEIA_ENV_EXTRA` | caminho de um `.env` fora da pasta do app, de onde só `GEMINI_API_KEY` e `AI_GATEWAY_API_KEY` são lidas |
 | `AVEIA_MAX_UPLOAD_MB` | teto do arquivo importado (padrão 1024) |
 | `AVEIA_SEM_AQUECER`, `AVEIA_SEM_NAVEGADOR` | testes e servidores sem carregar o modelo ou abrir o navegador |
 

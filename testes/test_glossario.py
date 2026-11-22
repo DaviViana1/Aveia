@@ -3,7 +3,7 @@
     .venv\\Scripts\\python -m unittest testes.test_glossario -v
 
 Cobre: normalização e limite, `_opcoes_decodificacao` (vazio = kwargs idênticos aos de antes), caminho clássico
-(`transcrever` -> `motores.palavras` -> `_palavras` -> `transcribe`), caminho ao vivo (blocos da `Sessao`), Groq (não recebe)
+(`transcrever` -> `motores.palavras` -> `_palavras` -> `transcribe`), caminho ao vivo (blocos da `Sessao`)
 e as rotas (campo ausente é aceito e ignorado). Nada é gravado em `gravacoes/`: `app.GRAVACOES` aponta para uma pasta temporária.
 """
 from __future__ import annotations
@@ -163,25 +163,12 @@ class ClassicoTest(unittest.TestCase):
         self.assertGreaterEqual(len(chamadas), 2)   # houve retranscrição
         self.assertTrue(all(c.get("hotwords") == "deploy" for c in chamadas))
 
-    def test_groq_nao_recebe_o_glossario_e_o_fallback_local_recebe(self):
-        enviados: list = []
-
-        def groq_falso(audio, duracao, idioma, prompt, avisar, meta, local):
-            enviados.append((prompt, idioma))   # a Groq só recebe `prompt` (AVEIA_GROQ_PROMPT), nunca o glossário
-            return iter(())
-
-        with mock.patch.object(motores, "groq_configurado", lambda: True), \
-                mock.patch.object(motores, "_groq_palavras", groq_falso), \
-                mock.patch.dict(os.environ, {"AVEIA_GROQ_PROMPT": ""}):
-            list(motores.palavras(np.zeros(TAXA, dtype=np.float32), 1.0, "pt", lambda p, m: None, motor="groq",
-                                  meta={}, glossario="deploy"))
-        self.assertEqual(enviados, [(None, "pt")])
-        self.assertEqual(self.modelo.chamadas, [])   # com a Groq ativa o Whisper local não rodou
-
-        # Groq sem chave -> cai no local, que usa o glossário.
-        with mock.patch.object(motores, "groq_configurado", lambda: False):
-            list(motores.palavras(np.zeros(TAXA, dtype=np.float32), 1.0, "pt", lambda p, m: None, motor="groq",
-                                  meta={}, glossario="deploy"))
+    def test_pedido_de_motor_antigo_vira_local_e_usa_o_glossario(self):
+        # versões antigas do app aceitavam outro motor: hoje qualquer valor vira `local`, que recebe o glossário
+        meta: dict = {}
+        list(motores.palavras(np.zeros(TAXA, dtype=np.float32), 1.0, "pt", lambda p, m: None, motor="outro",
+                              meta=meta, glossario="deploy"))
+        self.assertEqual(meta["motor"], "local")
         self.assertEqual(self.modelo.chamadas[-1]["hotwords"], "deploy")
 
 

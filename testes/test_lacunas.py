@@ -329,22 +329,6 @@ class TranscreverTest(Base):
         self.assertEqual((meta["lacunas"], meta["avisos"]), ([], []))
         self.assertEqual(sum(len(f.texto.split()) for f in falas), 71)
 
-    def test_groq_com_fallback_local_devolve_lacunas_na_linha_do_tempo_inteira(self):
-        from transcritor import motores
-        meta: dict = {}
-        # o local assume a partir de 10 s: o Whisper falso vê só audio[10 s:] (10 s); lacuna relativa 2,8-7,5 vira 12,8-17,5
-        modelo = ModeloFalso(palavras_em(0.5, 3.0, 3) + palavras_em(7.5, 9.5, 2, "c"), [[], []])
-        self.fala = [(0.4, 3.0), (3.5, 7.0), (7.4, 9.5)]
-        audio = np.zeros(20 * TAXA, dtype=np.float32)
-        with mock.patch.object(pipeline, "_carregar_modelo", lambda n: modelo),                 mock.patch.object(motores, "groq_configurado", lambda: True),                 mock.patch.object(motores, "_groq_palavras", lambda a, d, i, p, av, m, local: local(10.0)):
-            palavras = list(motores.palavras(audio, 20.0, "pt", lambda p, m: None, motor="groq", meta=meta))
-        self.assertEqual(len(palavras), 5)
-        self.assertGreaterEqual(palavras[0].start, 10.0)
-        self.assertEqual(len(meta["lacunas"]), 1)
-        self.assertAlmostEqual(meta["lacunas"][0]["inicio"], 12.83, places=1)
-        self.assertAlmostEqual(meta["lacunas"][0]["fim"], 17.5, places=1)
-        self.assertEqual(meta["lacunas"][0]["estado"], "nao_recuperada")
-
 
 class AoVivoTest(Base):
     """Caminho ao vivo: o bloco é transcrito com `_palavras`; as lacunas voltam com o tempo da gravação."""

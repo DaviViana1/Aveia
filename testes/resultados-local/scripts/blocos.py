@@ -6,7 +6,7 @@ from datetime import datetime
 from unittest import mock
 RAIZ = Path(__file__).resolve().parents[3]  # raiz do projeto
 sys.path.insert(0, str(RAIZ)); sys.path.insert(0, str(RAIZ / "testes"))
-os.environ["HF_HUB_OFFLINE"] = "1"; os.environ["AI_GATEWAY_API_KEY"] = ""; os.environ["GROQ_API_KEY"] = ""
+os.environ["HF_HUB_OFFLINE"] = "1"; os.environ["AI_GATEWAY_API_KEY"] = ""
 import lacunas_revalidar as L
 from testes.wer import wer, normalizar
 from transcritor import pipeline, aovivo

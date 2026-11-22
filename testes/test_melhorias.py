@@ -173,14 +173,15 @@ class ServidorLocalTest(unittest.TestCase):
         self.assertEqual(self.cli.get("/", headers={"Origin": "http://evil.com"}).status_code, 200)
 
     def test_privacidade_nao_vaza_chave(self):
-        with mock.patch.dict(os.environ, {"AI_GATEWAY_API_KEY": "SEGREDO-123", "GROQ_API_KEY": "SEGREDO-456"}):
+        with mock.patch.dict(os.environ, {"AI_GATEWAY_API_KEY": "SEGREDO-123"}):
             r = self.cli.get("/api/privacidade")
             self.assertEqual(r.status_code, 200)
             self.assertNotIn("SEGREDO", r.text)
             ids = {x["id"]: x for x in r.json()["recursos"]}
             self.assertEqual(ids["transcricao"]["onde"], "local")
-            self.assertEqual(ids["resumo"]["onde"], "nuvem")
-            self.assertEqual(ids["groq"]["envia"], "áudio")
+            self.assertEqual(ids["ia"]["onde"], "nuvem")
+            self.assertTrue(ids["ia"]["interruptor"])
+            self.assertNotIn("groq", ids)
             self.assertEqual(self.cli.get("/api/ia").json()["uso"]["teto"], metricas.teto_mes())
             self.assertNotIn("SEGREDO", self.cli.get("/api/ia").text)
 

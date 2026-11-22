@@ -196,8 +196,9 @@ class Interface(unittest.TestCase):
             from fastapi.testclient import TestClient
             c = TestClient(app.app, base_url="http://127.0.0.1:8765")
             p = c.get("/api/privacidade").json()
-            ia_rec = [r for r in p["recursos"] if r["id"] in ("resumo", "titulo", "nomes")]
-            self.assertEqual(len(ia_rec), 3)
+            ia_rec = [r for r in p["recursos"] if r["id"] == "ia"]   # título, resumo e nomes: uma linha só, com interruptor
+            self.assertEqual(len(ia_rec), 1)
+            self.assertTrue(ia_rec[0]["interruptor"])
             self.assertTrue(all(r["para"] == "Google (Gemini)" and r["envia"] == "texto" for r in ia_rec))
             self.assertIn("Plano pago", p["ia_aviso"]); self.assertIn("Google", p["ia_aviso"])
             j = c.get("/api/ia").json()

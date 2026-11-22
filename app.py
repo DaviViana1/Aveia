@@ -1,9 +1,12 @@
 """Aveia: servidor local. Serve a interface e transcreve os áudios enviados."""
+import hashlib
 import json
 import os
+import socket
 import sys
 import threading
 import time
+import urllib.request
 import uuid
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
@@ -38,7 +41,7 @@ from transcritor import aovivo, arquivos, ia, metricas, motores, perfil_pc, pipe
 from transcritor import audio as preproc  # noqa: E402  (pré-processamento: se ligado, o modo ao vivo é recusado)
 from transcritor.pipeline import transcrever  # noqa: E402
 
-ia.carregar_chaves_extras()   # opcional: AVEIA_ENV_EXTRA=<arquivo .env>; só as chaves de IA e Groq
+ia.carregar_chaves_extras()   # opcional: AVEIA_ENV_EXTRA=<arquivo .env>; só as chaves de IA
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 PORTA = int(os.environ.get("AVEIA_PORTA") or 8765)   # fixa no uso normal; AVEIA_PORTA só para testes e servidores temporários
@@ -358,9 +361,9 @@ async def api_transcrever(
     audio: UploadFile = File(...),
     idioma: str = Form("pt"),
     locutores: int = Form(0),
-    motor: str = Form(""),      # "local" | "groq" | "" (usa AVEIA_MOTOR ou local); groq = opt-in, envia o áudio à nuvem
+    motor: str = Form(""),      # ignorado: a transcrição é sempre local (o campo fica por compatibilidade com versões antigas)
     canais: str = Form(""),     # "mic+sistema": arquivo estéreo (microfone à esquerda, áudio do computador à direita); outro valor = mono
-    glossario: str = Form(""),  # nomes e termos curtos (vírgula ou linha) para o Whisper local; vazio = como antes; a Groq não recebe
+    glossario: str = Form(""),  # nomes e termos curtos (vírgula ou linha) para o Whisper local; vazio = como antes
 ):
     job_id = uuid.uuid4().hex
     sufixo = "." + _ext_upload(Path(audio.filename or "").suffix)
@@ -371,12 +374,6 @@ async def api_transcrever(
     fila.submit(_executar, job_id, str(arquivo), IDIOMAS.get(idioma), locutores or None, motores.normalizar_motor(motor),
                 pipeline.normalizar_canais(canais), pipeline.normalizar_glossario(glossario))
     return {"job": job_id}
-
-
-@app.get("/api/motores")
-def api_motores():
-    """Motores de transcrição disponíveis, padrão atual e uso estimado da cota gratuita da Groq."""
-    return motores.estado()
 
 
 @app.get("/api/computador")
@@ -508,16 +505,11 @@ RETENCAO_DIAS = int(os.environ.get("AVEIA_RETENCAO_DIAS", "30") or 30)
 def api_privacidade():
     """O que fica nesta máquina e o que pode sair dela, por recurso (a interface mostra esta tabela), mais o uso da IA do mês
     e a situação dos arquivos guardados. Só números e nomes; nenhum valor de chave."""
-    groq = motores.estado()
     recursos = [
-        {"id": "transcricao", "nome": "Transcrição (Whisper)", "onde": "local", "envia": "nada", "ativo": True},
-        {"id": "locutores", "nome": "Separação de locutores", "onde": "local", "envia": "nada", "ativo": True},
-        {"id": "groq", "nome": "Transcrição pela Groq", "onde": "nuvem", "envia": "áudio",
-         "ativo": bool(groq.get("padrao") == "groq"), "disponivel": any(m.get("id") == "groq" and m.get("disponivel")
-                                                                       for m in groq.get("motores", []))},
-        {"id": "resumo", "nome": "Resumo por IA", "onde": "nuvem", "envia": "texto", "para": ia.destino(), "disponivel": resumo.configurada()},
-        {"id": "titulo", "nome": "Título por IA", "onde": "nuvem", "envia": "texto", "para": ia.destino(), "disponivel": resumo.configurada()},
-        {"id": "nomes", "nome": "Nomes dos locutores por IA", "onde": "nuvem", "envia": "texto", "para": ia.destino(), "disponivel": resumo.configurada()},
+        {"id": "transcricao", "nome": "Transcrição (Whisper)", "onde": "local", "ativo": True},
+        {"id": "locutores", "nome": "Separação de locutores", "onde": "local", "ativo": True},
+        {"id": "ia", "nome": "IA (título, resumo e nomes)", "onde": "nuvem", "envia": "texto", "para": ia.destino(),
+         "interruptor": True, "disponivel": resumo.configurada()},
     ]
     rede = [
         {"nome": "Modelos de transcrição e de locutores (primeiro uso)", "envia": "nada"},
@@ -647,6 +639,40 @@ def raiz():
 app.mount("/static", StaticFiles(directory=ESTATICOS), name="static")
 
 
+def _id_da_pasta() -> str:
+    """Identifica esta cópia do Aveia (pela pasta), para saber se a porta ocupada é de outra instância ou da mesma."""
+    return hashlib.sha1(str(PASTA.resolve()).lower().encode("utf-8")).hexdigest()[:12]
+
+
+@app.get("/api/instancia")
+def api_instancia():
+    return {"app": "aveia", "pasta": _id_da_pasta()}
+
+
+def _porta_ocupada(porta: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.4)
+        return s.connect_ex(("127.0.0.1", porta)) == 0
+
+
+def _escolher_porta() -> tuple[int | None, bool]:
+    """(porta, já_está_rodando). A 8765 é a padrão. Se estiver ocupada: se é esta mesma pasta, o app já está no ar (só abre o
+    navegador); se é outro programa ou outra cópia do Aveia, usa a próxima porta livre (até 8799), em vez de falhar ou brigar."""
+    if os.environ.get("AVEIA_PORTA"):
+        return PORTA, False
+    for porta in range(PORTA, PORTA + 35):
+        if not _porta_ocupada(porta):
+            return porta, False
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{porta}/api/instancia", timeout=1.5) as r:
+                dados = json.loads(r.read().decode("utf-8"))
+            if dados.get("app") == "aveia" and dados.get("pasta") == _id_da_pasta():
+                return porta, True
+        except Exception:  # noqa: BLE001  (outro programa, ou Aveia de versão sem esta rota)
+            pass
+    return None, False
+
+
 def _sair_ja(codigo: int = 0) -> None:
     """Ctrl+C: o uvicorn para o servidor, mas as threads de trabalho (transcrição, IA) não são daemon e seguram o processo até o
     trabalho em curso acabar (minutos numa gravação longa), e o console parece travado. Cancela o que ainda está na fila e sai
@@ -660,6 +686,19 @@ def _sair_ja(codigo: int = 0) -> None:
 
 
 def principal() -> None:
+    global PORTA
+    porta, ja_rodando = _escolher_porta()
+    if porta is None:
+        print(f"Aveia não iniciou: as portas {PORTA} a {PORTA + 34} estão ocupadas.", flush=True)
+        _sair_ja(1)
+    if ja_rodando:
+        print(f"O Aveia desta pasta já está aberto em http://127.0.0.1:{porta}", flush=True)
+        if not os.environ.get("AVEIA_SEM_NAVEGADOR"):
+            webbrowser.open(f"http://127.0.0.1:{porta}")
+        _sair_ja(0)
+    if porta != PORTA:
+        print(f"A porta {PORTA} está em uso por outro programa: o Aveia abriu em http://127.0.0.1:{porta}", flush=True)
+    PORTA = porta
     # Aquecimento do modelo Whisper só ao iniciar o servidor de verdade (importar `app` em testes não carrega o modelo).
     # AVEIA_SEM_AQUECER=1 desliga. Assim o primeiro bloco ao vivo não espera o modelo carregar.
     if not os.environ.get("AVEIA_SEM_AQUECER"):

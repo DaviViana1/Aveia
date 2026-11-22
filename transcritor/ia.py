@@ -180,7 +180,7 @@ def chamar(servico: str, sistema: str, usuario: str, max_tokens: int, temperatur
         raise Falha("Resposta inesperada da IA.") from None
 
 
-CHAVES_EXTRAS = {"GEMINI_API_KEY", "AI_GATEWAY_API_KEY", "GROQ_API_KEY"}
+CHAVES_EXTRAS = {"GEMINI_API_KEY", "AI_GATEWAY_API_KEY"}
 
 
 def carregar_chaves_extras() -> None:
