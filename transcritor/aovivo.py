@@ -18,6 +18,7 @@ import os
 import threading
 import time
 import uuid
+import wave
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable
@@ -225,8 +226,9 @@ def escolher_pausa(fala: list[tuple[int, int]], tam: int, minimo: int, ultimo: b
 class Sessao:
     def __init__(self, id: str, arquivo: Path, idioma: str | None, locutores: int | None,
                  submeter: Callable[..., object], monotonico: Callable[[], float] = time.monotonic,
-                 canais: str | None = None, glossario: str | None = None) -> None:
+                 canais: str | None = None, glossario: str | None = None, pcm_direto: bool = False) -> None:
         self.id = id
+        self.pcm_direto = pcm_direto      # áudio vem pronto do servidor (transcritor/captura.py): sem decodificador
         self.glossario = pipeline.normalizar_glossario(glossario)   # `hotwords` de cada bloco e da cauda ("" = como antes)
         self.canais = pipeline.normalizar_canais(canais)   # "mic+sistema" (arquivo estéreo) ou None (mono)
         self.arquivo = Path(arquivo)
@@ -238,7 +240,14 @@ class Sessao:
 
         # recepção
         self._trava_rec = threading.Lock()
-        self._arq = open(self.arquivo, "wb")
+        if pcm_direto:   # WAV estéreo 16 bits em disco (o caminho clássico lê este arquivo se o ao vivo cair)
+            self._arq = wave.open(str(self.arquivo), "wb")
+            self._arq.setnchannels(2)
+            self._arq.setsampwidth(2)
+            self._arq.setframerate(TAXA)
+            self._frames_cab = 0
+        else:
+            self._arq = open(self.arquivo, "wb")
         self._proximo = 0                 # próximo seq esperado
         self._adiantados: dict[int, bytes] = {}
         self.bytes_recebidos = 0
@@ -246,8 +255,9 @@ class Sessao:
 
         # decodificação
         self._fluxo = _Fluxo()
-        self.pcm: _Pcm | _PcmDuplo = _PcmDuplo() if self.canais else _Pcm()
-        self.estereo = False              # com `canais`: o fluxo realmente tem 2 canais (senão decodifica como mono)
+        self.pcm: _Pcm | _PcmDuplo = _PcmDuplo() if (self.canais or pcm_direto) else _Pcm()
+        self.estereo = bool(pcm_direto)   # com PCM direto o fluxo é sempre estéreo (E = microfone, D = computador)
+                                          # (sem PCM direto, quem decide se há 2 canais é o decodificador)
         self._eof = threading.Event()
         self.degradada = False
         self.motivo = ""
@@ -275,8 +285,11 @@ class Sessao:
         self._diar_cursor = 0             # amostras já entregues à diarização (contíguas desde 0)
         self._inc_janelas = 0             # janelas processadas durante a gravação
 
-        self._decodificador = threading.Thread(target=self._decodificar, name=f"aovivo-{id[:6]}", daemon=True)
-        self._decodificador.start()
+        if pcm_direto:
+            self._eof.set()   # não há decodificador: o fim do áudio é o `marcar_fim`
+        else:
+            self._decodificador = threading.Thread(target=self._decodificar, name=f"aovivo-{id[:6]}", daemon=True)
+            self._decodificador.start()
 
     # ---- recepção ---------------------------------------------------------------------------------------
     def receber(self, seq: int, dados: bytes) -> dict:
@@ -303,6 +316,31 @@ class Sessao:
                     self._fluxo.anexar(d)
             return self._estado_rec()
 
+    def anexar_pcm(self, pcm: np.ndarray) -> None:
+        """Áudio já pronto (float32, 16 kHz, estéreo intercalado E, D, E, D...), vindo da captura do servidor. Não passa
+        pelo decodificador. Grava também o WAV em disco (fallback do caminho clássico) e agenda os blocos."""
+        if not self.pcm_direto:
+            raise AoVivoIndisponivel("a sessão não aceita PCM direto")
+        a = np.asarray(pcm, dtype=np.float32).reshape(-1)
+        a = a[: (len(a) // 2) * 2]
+        if not len(a):
+            return
+        with self._trava_rec:
+            if self.liberada or self.finalizando:
+                return
+            self.ultimo_pedaco = self._relogio()
+            self._arq.writeframes((np.clip(a, -1.0, 1.0) * 32767.0).astype("<i2").tobytes())
+            self._frames_cab += len(a) // 2
+            if self._frames_cab >= TAXA * 10:   # a cada ~10 s põe o tamanho certo no cabeçalho (sobrevive a uma queda)
+                self._frames_cab = 0
+                try:
+                    self._arq._patchheader()
+                    self._arq._file.flush()
+                except Exception:  # noqa: BLE001
+                    pass
+        self.pcm.anexar(a)
+        self._agendar()
+
     def _estado_rec(self) -> dict:
         return {"proximo": self._proximo, "bytes": self.bytes_recebidos, "adiantados": len(self._adiantados)}
 
@@ -314,6 +352,8 @@ class Sessao:
         """O navegador terminou de enviar: o decodificador vê o fim do fluxo e para de agendar blocos."""
         with self._trava_rec:
             self.duracao_esperada = max(0.0, float(duracao or 0.0))
+            if self.pcm_direto:
+                self.duracao_esperada = self.pcm.n / TAXA
             self.finalizando = True
             self._t_fim = self._relogio()
             try:
@@ -321,6 +361,7 @@ class Sessao:
             except OSError:
                 pass
         self._fluxo.encerrar()
+        self._eof.set()
 
     # ---- decodificação ----------------------------------------------------------------------------------
     def _decodificar(self) -> None:
@@ -723,6 +764,20 @@ class Gerenciador:
                 return None
             sid = uuid.uuid4().hex
             s = Sessao(sid, arquivo, idioma, locutores, self._submeter, self._relogio, canais, glossario)
+            self.sessoes[sid] = s
+        self._iniciar_varredor()
+        return s
+
+    def criar_direta(self, arquivo: Path, idioma: str | None, locutores: int | None = None,
+                     glossario: str | None = None) -> Sessao | None:
+        """Sessão alimentada por `anexar_pcm` (captura no servidor, estéreo mic + computador). None se há sessões demais."""
+        self.varrer()
+        with self._trava:
+            if sum(1 for s in self.sessoes.values() if not s.finalizando and not s.degradada) >= MAX_SESSOES:
+                return None
+            sid = uuid.uuid4().hex
+            s = Sessao(sid, arquivo, idioma, locutores, self._submeter, self._relogio, pipeline.CANAIS_MIC_SISTEMA,
+                       glossario, pcm_direto=True)
             self.sessoes[sid] = s
         self._iniciar_varredor()
         return s

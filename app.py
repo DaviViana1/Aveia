@@ -1,5 +1,6 @@
 """Aveia: servidor local. Serve a interface e transcreve os áudios enviados."""
 import hashlib
+import hmac
 import json
 import os
 import socket
@@ -16,6 +17,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -37,7 +39,7 @@ def _carregar_env(caminho: Path) -> None:
 
 _carregar_env(PASTA / ".env")
 
-from transcritor import aovivo, arquivos, ia, metricas, motores, perfil_pc, pipeline, resumo, titulo  # noqa: E402  (depois do .env, que define a chave)
+from transcritor import aovivo, arquivos, controle as controle_mod, ia, metricas, motores, perfil_pc, pipeline, resumo, titulo  # noqa: E402  (depois do .env, que define a chave)
 from transcritor import audio as preproc  # noqa: E402  (pré-processamento: se ligado, o modo ao vivo é recusado)
 from transcritor.pipeline import transcrever  # noqa: E402
 
@@ -46,6 +48,7 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 PORTA = int(os.environ.get("AVEIA_PORTA") or 8765)   # fixa no uso normal; AVEIA_PORTA só para testes e servidores temporários
 ESTATICOS = Path(__file__).parent / "static"
+SAIDA = PASTA / "saida"   # reuniões gravadas por controle (fora do Git); não passa por transcritor/arquivos.py (que limita a 5 por pasta)
 GRAVACOES = PASTA / "gravacoes"   # raiz: áudio pendente até a nota ser salva. Subpastas: ver transcritor/arquivos.py
 IDIOMAS = {"pt": "pt", "en": "en", "es": "es", "auto": None}
 
@@ -242,6 +245,39 @@ async def _campos(request: Request) -> dict:
         return dict(await request.form())
     except Exception:  # noqa: BLE001
         return {}
+
+
+# ---- gravação automática por controle (transcritor/controle.py): sem tela, sem clique ----------------------------------
+TOKEN_CONTROLE = os.environ.get("AVEIA_CONTROLE_TOKEN") or controle_mod.novo_token()   # gravado em controle.json na subida
+controle = controle_mod.Controle(aovivo_sessoes, _executar_aovivo, jobs, lambda fn, *a: fila.submit(fn, *a), GRAVACOES, SAIDA)
+
+
+def _sem_token(request: Request) -> JSONResponse | None:
+    dado = request.headers.get("x-aveia-token") or ""
+    if not hmac.compare_digest(dado.encode("utf-8"), TOKEN_CONTROLE.encode("utf-8")):
+        return JSONResponse({"ok": False, "motivo": "token"}, status_code=401)
+    return None
+
+
+@app.get("/api/controle/estado")
+def api_controle_estado(request: Request):
+    return _sem_token(request) or controle.estado()
+
+
+@app.post("/api/controle/iniciar")
+async def api_controle_iniciar(request: Request):
+    """{evento_id, titulo, participantes:[{nome,email}], fim_previsto}: começa a gravar microfone e áudio do computador."""
+    if (negado := _sem_token(request)) is not None:
+        return negado
+    codigo, corpo = await run_in_threadpool(controle.iniciar, await _campos(request))
+    return JSONResponse(corpo, status_code=codigo)
+
+
+@app.post("/api/controle/parar")
+async def api_controle_parar(request: Request):
+    if (negado := _sem_token(request)) is not None:
+        return negado
+    return await run_in_threadpool(controle.parar, "manual")
 
 
 @app.post("/api/aovivo")
@@ -677,6 +713,8 @@ def _sair_ja(codigo: int = 0) -> None:
     """Ctrl+C: o uvicorn para o servidor, mas as threads de trabalho (transcrição, IA) não são daemon e seguram o processo até o
     trabalho em curso acabar (minutos numa gravação longa), e o console parece travado. Cancela o que ainda está na fila e sai
     de uma vez. O que estava sendo transcrito se perde, mas o áudio fica guardado no navegador ("Tentar de novo")."""
+    controle.encerrar()
+    controle_mod.apagar_arquivo_controle()
     fila.shutdown(wait=False, cancel_futures=True)
     fila_ia.shutdown(wait=False, cancel_futures=True)
     print("Aveia encerrado.", flush=True)
@@ -699,6 +737,10 @@ def principal() -> None:
     if porta != PORTA:
         print(f"A porta {PORTA} está em uso por outro programa: o Aveia abriu em http://127.0.0.1:{porta}", flush=True)
     PORTA = porta
+    try:
+        controle_mod.gravar_arquivo_controle(porta, TOKEN_CONTROLE)
+    except OSError as e:
+        print(f"Não foi possível gravar o controle.json (a gravação por controle fica sem endereço): {e}", flush=True)
     # Aquecimento do modelo Whisper só ao iniciar o servidor de verdade (importar `app` em testes não carrega o modelo).
     # AVEIA_SEM_AQUECER=1 desliga. Assim o primeiro bloco ao vivo não espera o modelo carregar.
     if not os.environ.get("AVEIA_SEM_AQUECER"):

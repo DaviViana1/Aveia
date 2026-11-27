@@ -21,3 +21,4 @@ testes/audio-ditado/
 testes/resultados-local/bruto/
 CLAUDE.md
 *.part
+saida/

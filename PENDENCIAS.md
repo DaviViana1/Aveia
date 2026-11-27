@@ -12,6 +12,13 @@ Atualizado em 2026-11-21.
 | Resumo, título e nomes por IA com a chave no `.env`, com a IA automática ligada e desligada | A chave não existe nesta máquina |
 | Fechar a gravação com a rede instável (repetição do `/finalizar`) | Só simulado em Node |
 
+## Gravação automática por controle (2026-11-27)
+
+- Testado com microfone e loopback reais (taxas e amostras), subida sem tela e parada manual; **não testado**: reunião real longa, troca de fone Bluetooth no meio da gravação (a sonda de mudança do dispositivo padrão só tem teste simulado) e IA ligada.
+- O áudio dos dois canais fica em memória como float32 (cerca de 460 MB por hora); reuniões acima de 2 h pedem atenção.
+- O ao vivo disputa a CPU com o Whisper: em reunião longa o texto final pode demorar alguns minutos depois do parar.
+- A tela aberta durante uma gravação por controle não participa dela (a sessão é do servidor).
+
 ## Decisões abertas
 
 - **Corte adaptativo dos blocos** (`AVEIA_BLOCO_ADAPTATIVO=1`): economiza 8% a 38% de CPU, mas um clipe piorou 3,5 pontos de WER. Ligar só depois do teste de reunião real.
