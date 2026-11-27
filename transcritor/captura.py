@@ -243,7 +243,10 @@ class FabricaWasapi:
 
     def padroes(self) -> dict:
         try:
-            r = subprocess.run([sys.executable, "-c", _SONDA], capture_output=True, text=True, timeout=10)
+            # sem janela: rodando por pythonw, cada sonda abriria um console piscando a cada 8 s
+            sem_janela = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            r = subprocess.run([sys.executable, "-c", _SONDA], capture_output=True, text=True, timeout=10,
+                               creationflags=sem_janela)
             return json.loads(r.stdout.strip().splitlines()[-1])
         except Exception:  # noqa: BLE001
             return {}
