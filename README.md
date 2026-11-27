@@ -43,7 +43,8 @@ Gravar: botão vermelho. Importar: ícone de upload. Renomear locutor: clique no
 Outro programa local pode mandar o Aveia gravar sem nenhum clique: o servidor captura o microfone padrão (canal E) e o áudio que sai do computador (canal D, loopback WASAPI) com o PyAudioWPatch, transcreve ao vivo e, ao parar, grava a pasta `saida/<AAAA-MM-DD>_<HHMM>_<titulo>/` (fora do Git) com `meta.json`, `transcricao.md`, `resumo.md`, `locutores.json`, `falas.json` e, por último, `concluido.flag`.
 
 - Subir sem tela: `AVEIA_SEM_NAVEGADOR=1 .venv\Scripts\python app.py`. Na subida o app grava `%LOCALAPPDATA%\Aveia\controle.json` com `porta`, `token` e `pid`.
-- Rotas (cabeçalho `X-Aveia-Token` obrigatório): `GET /api/controle/estado`, `POST /api/controle/iniciar` (`evento_id`, `titulo`, `participantes`, `fim_previsto`), `POST /api/controle/parar`. Gravando de novo, `iniciar` responde 409.
+- Rotas (cabeçalho `X-Aveia-Token` obrigatório): `GET /api/controle/estado`, `POST /api/controle/iniciar` (`evento_id`, `titulo`, `participantes`, `fim_previsto`), `POST /api/controle/parar`. Gravando de novo, `iniciar` responde 409; com gravação manual da tela em andamento, 409 `tela-gravando`.
+- Na tela: barra no topo com o título, o tempo e o botão Parar (`GET /api/controle/painel` e `POST /api/controle/parar-tela`, sem token, só do próprio computador e da própria página; o `parar-tela` exige `Origin` local), consultada a cada 3 s. O botão de gravar fica desativado enquanto a automática grava.
 - Parada automática: depois de `fim_previsto`, com 10 min seguidos de silêncio no canal do computador, ou no máximo em `fim_previsto` + 30 min.
 - IA desligada (`AVEIA_IA=0` ou sem chave): nenhuma chamada, `resumo.md` com as seções vazias e `meta.ia = false`. Ligada: nomes pelos participantes e resumo executivo.
 - Sucesso apaga o WAV temporário de `gravacoes/` (`AVEIA_CONTROLE_GUARDAR_AUDIO=1` mantém). `AVEIA_NOME_USUARIO` dá nome ao canal do microfone.

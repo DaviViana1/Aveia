@@ -106,11 +106,25 @@ class Controle:
                 r["ultimo_erro"] = self.ultimo_erro
             return r
 
+    def painel(self) -> dict:
+        """Só o que a tela mostra (sem participantes, e-mails, pasta nem token)."""
+        e = self.estado()
+        seg = 0
+        if e["estado"] != "ocioso" and e["inicio"]:
+            seg = max(0, int((self._agora() - datetime.fromisoformat(e["inicio"])).total_seconds()))
+        return {"estado": e["estado"], "titulo": e["titulo"], "inicio": e["inicio"], "fim_previsto": e["fim_previsto"], "segundos": seg}
+
+    def _tela_gravando(self) -> bool:
+        """Há gravação manual do navegador (sessão ao vivo que não é a captura do servidor)?"""
+        return any(not s.pcm_direto and not (s.finalizando or s.degradada or s.liberada) for s in list(self._ger.sessoes.values()))
+
     # ---- iniciar --------------------------------------------------------------------------------------
     def iniciar(self, dados: dict) -> tuple[int, dict]:
         with self._trava:
             if self._atual is not None:
                 return 409, {"ok": False, "motivo": "ja-gravando", "evento_id": self._atual["evento_id"]}
+            if self._tela_gravando():
+                return 409, {"ok": False, "motivo": "tela-gravando"}
             ok, motivo = (True, "") if self._injetada else captura.disponivel()
             if not ok:
                 return 503, {"ok": False, "motivo": "captura-indisponivel", "detalhe": motivo}

@@ -264,6 +264,22 @@ def api_controle_estado(request: Request):
     return _sem_token(request) or controle.estado()
 
 
+@app.get("/api/controle/painel")
+def api_controle_painel():
+    """Só leitura, sem token: o que a tela mostra da gravação automática (o `_so_local` já limita ao computador local)."""
+    return controle.painel()
+
+
+@app.post("/api/controle/parar-tela")
+async def api_controle_parar_tela(request: Request):
+    """Botão Parar da tela, sem token. Exige Origin local (o `_so_local` deixa passar POST sem Origin; aqui não)."""
+    origem = (request.headers.get("origin") or "").strip().lower()
+    host = (request.headers.get("host") or "").strip().lower()
+    if not origem or origem.split("://", 1)[-1] != host:
+        return JSONResponse({"ok": False, "motivo": "origem"}, status_code=403)
+    return await run_in_threadpool(controle.parar, "tela")
+
+
 @app.post("/api/controle/iniciar")
 async def api_controle_iniciar(request: Request):
     """{evento_id, titulo, participantes:[{nome,email}], fim_previsto}: começa a gravar microfone e áudio do computador."""

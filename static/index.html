@@ -244,6 +244,18 @@
     </div>
     </header>
 
+    <!-- Gravação automática (controle): barra fixa logo abaixo do cabeçalho, encostada nas bordas. Some quando ocioso. -->
+    <div id="auto-espaco" class="hidden h-10 -mt-2 shrink-0" aria-hidden="true"></div>
+    <div id="auto-barra" class="hidden fixed top-14 inset-x-0 z-[24] h-10 bg-white border-b border-mirtilo/10" role="status" aria-live="polite">
+        <div class="w-full max-w-[1264px] mx-auto h-full px-4 sm:px-8 flex items-center gap-3 min-w-0">
+            <svg id="auto-ico-rec" class="shrink-0 animate-pulse text-framboesa" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="currentColor"/></svg>
+            <span id="auto-ico-proc" class="hidden spin shrink-0 text-amendoa" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg></span>
+            <span id="auto-titulo" class="min-w-0 flex-1 truncate text-sm font-medium text-mirtilo"></span>
+            <span id="auto-tempo" class="shrink-0 font-mono text-xs text-mirtilo/60"></span>
+            <button id="auto-parar" type="button" onclick="pararAutomatica()" class="shrink-0 px-3 py-1 rounded-full bg-framboesa text-aveia text-xs font-medium hover:brightness-110 active:scale-95 transition-all">Parar</button>
+        </div>
+    </div>
+
     <!-- Gravações que não terminaram de processar (o áudio fica guardado no navegador) -->
     <div id="pendentes" class="hidden w-full max-w-[1200px] mx-auto space-y-2 mb-2"></div>
 
@@ -2658,6 +2670,34 @@
         mostrarPendentes();
         // Gravação interrompida (aba fechada, crash, bateria): os pedaços guardados viram "pendente" para tentar de novo.
         Mic.recuperar(reg => BD.guardar(reg)).then(n => { if (n) { mostrarPendentes(); aviso('Recuperei uma gravação interrompida', false); } });
+
+        // ---------- Gravação automática (controle): só mostra; quem grava é o servidor ----------
+        let autoEstado = 'ocioso', autoBase = 0, autoDesde = 0;
+        function fmtTempo(t) { const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60, d = n => String(n).padStart(2, '0'); return h ? `${h}:${d(m)}:${d(s)}` : `${d(m)}:${d(s)}`; }
+        function pintarAuto() {
+            const ativo = autoEstado === 'gravando' || autoEstado === 'processando', grav = autoEstado === 'gravando';
+            $('auto-barra').classList.toggle('hidden', !ativo); $('auto-espaco').classList.toggle('hidden', !ativo);
+            $('auto-ico-rec').classList.toggle('hidden', !grav); $('auto-ico-proc').classList.toggle('hidden', grav);
+            $('auto-parar').classList.toggle('hidden', !grav);
+            if (grav) $('auto-tempo').textContent = fmtTempo(autoBase + Math.floor((Date.now() - autoDesde) / 1000));
+            else $('auto-tempo').textContent = '';
+            const rec = $('rec-btn'); if (rec) { rec.disabled = grav; rec.classList.toggle('opacity-40', grav); rec.classList.toggle('pointer-events-none', grav); }
+        }
+        async function consultarAuto() {
+            try {
+                const r = await fetch('/api/controle/painel', { cache: 'no-store' }); if (!r.ok) return;
+                const p = await r.json();
+                autoEstado = p.estado; autoBase = p.segundos || 0; autoDesde = Date.now();
+                $('auto-titulo').textContent = p.estado === 'processando' ? 'Transcrevendo ' + (p.titulo || '') : (p.titulo || 'Reunião');
+                pintarAuto();
+            } catch (e) { /* servidor fora: mantém o que está na tela */ }
+        }
+        async function pararAutomatica() {
+            $('auto-parar').disabled = true;
+            try { await fetch('/api/controle/parar-tela', { method: 'POST' }); } catch (e) { /* o próximo ciclo mostra o estado real */ }
+            $('auto-parar').disabled = false; consultarAuto();
+        }
+        consultarAuto(); setInterval(consultarAuto, 3000); setInterval(() => { if (autoEstado === 'gravando') pintarAuto(); }, 1000);
     </script>
 </body>
 </html>

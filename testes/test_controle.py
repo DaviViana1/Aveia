@@ -216,6 +216,36 @@ class TestRotas(Base):
         self.assertEqual(r.status_code, 409)
         self.assertEqual((r.json()["motivo"], r.json()["evento_id"]), ("ja-gravando", "ev-1"))
 
+    def test_painel_sem_token_so_com_campos_permitidos(self):
+        self.assertEqual(self.cli.get("/api/controle/painel").json()["estado"], "ocioso")
+        self.cli.post("/api/controle/iniciar", headers=self.h, json={
+            "evento_id": "ev-1", "titulo": "Reunião de Teste", "participantes": [{"nome": "Ana", "email": "ana@exemplo.test"}],
+            "fim_previsto": (self.agora + timedelta(hours=1)).isoformat()})
+        self.agora += timedelta(seconds=75)
+        r = self.cli.get("/api/controle/painel")
+        self.assertEqual(r.status_code, 200)
+        p = r.json()
+        self.assertEqual(set(p), {"estado", "titulo", "inicio", "fim_previsto", "segundos"})
+        self.assertEqual((p["estado"], p["titulo"], p["segundos"]), ("gravando", "Reunião de Teste", 75))
+        self.assertNotIn("ana@exemplo.test", r.text)
+
+    def test_parar_tela_exige_origin_local(self):
+        self.cli.post("/api/controle/iniciar", headers=self.h, json={"evento_id": "e", "titulo": "A", "fim_previsto": (self.agora + timedelta(hours=1)).isoformat()})
+        self.assertEqual(self.cli.post("/api/controle/parar-tela").status_code, 403)   # sem Origin
+        self.assertEqual(self.cli.post("/api/controle/parar-tela", headers={"Origin": "http://127.0.0.1:3000"}).status_code, 403)
+        self.assertEqual(self.cli.post("/api/controle/parar-tela", headers={"Origin": "https://exemplo.com"}).status_code, 403)
+        self.assertEqual(self.ctl.estado()["estado"], "gravando")
+        r = self.cli.post("/api/controle/parar-tela", headers={"Origin": "http://127.0.0.1:8765"})
+        self.assertEqual((r.status_code, r.json()["ok"]), (200, True))
+        self.assertNotEqual(self.ctl.estado()["estado"], "gravando")
+
+    def test_iniciar_409_com_gravacao_da_tela(self):
+        s = self.ger.criar(self.raiz / "tela.wav", "pt", None)
+        self.assertIsNotNone(s)
+        r = self.cli.post("/api/controle/iniciar", headers=self.h, json={"evento_id": "e", "titulo": "A", "fim_previsto": (self.agora + timedelta(hours=1)).isoformat()})
+        self.assertEqual((r.status_code, r.json()["motivo"]), (409, "tela-gravando"))
+        self.assertEqual(self.ctl.estado()["estado"], "ocioso")
+
     def test_fim_previsto_invalido_400(self):
         r = self.cli.post("/api/controle/iniciar", headers=self.h, json={"evento_id": "x", "fim_previsto": "amanhã"})
         self.assertEqual(r.status_code, 400)
