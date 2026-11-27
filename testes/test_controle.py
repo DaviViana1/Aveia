@@ -392,7 +392,10 @@ class TestRotas(Base):
 
     def test_pagina_aberta_no_estado(self):
         self.assertIs(self.cli.get("/api/controle/estado", headers=self.h).json()["pagina_aberta"], False)
+        # consulta sem identificação (aba antiga ou script) não conta como página aberta
         self.cli.get("/api/controle/painel")
+        self.assertIs(self.cli.get("/api/controle/estado", headers=self.h).json()["pagina_aberta"], False)
+        self.cli.get("/api/controle/painel?pagina=aba1")
         self.assertIs(self.cli.get("/api/controle/estado", headers=self.h).json()["pagina_aberta"], True)
         self.rel.t += controle_mod.PAGINA_ABERTA_S + 1
         self.assertIs(self.cli.get("/api/controle/estado", headers=self.h).json()["pagina_aberta"], False)

@@ -120,13 +120,15 @@ class Controle:
         return self._painel_visto is not None and self._relogio() - self._painel_visto < PAGINA_ABERTA_S
 
     def painel(self, pagina: str = "") -> dict:
-        """Só o que a tela mostra (sem participantes, e-mails, pasta nem token). Cada consulta vale como sinal de que a página
-        está aberta; se `pagina` é a dona da gravação, renova o "visto" dela."""
+        """Só o que a tela mostra (sem participantes, e-mails, pasta nem token). Só a consulta de uma página que se
+        identifica (`pagina`) vale como sinal de página aberta: aba antiga, de antes desta versão, ou consulta de script
+        não conta (senão o disparador deixaria de abrir a página e ninguém assumiria a nota). Se `pagina` é a dona da
+        gravação, renova o "visto" dela."""
         minha = False
         with self._trava:
             agora = self._relogio()
-            self._painel_visto = agora
             if pagina:
+                self._painel_visto = agora
                 for g in (self._atual, self._pos):
                     if g is not None and g.get("assumida_por") == pagina:
                         g["pagina_vista"] = agora
