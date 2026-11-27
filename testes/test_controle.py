@@ -167,6 +167,7 @@ class Base(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
         self.addCleanup(self.ctl.encerrar)
+        self.addCleanup(lambda: self.ctl._pos and self.ctl._pos.update(saida_feita=True))   # solta a espera da thread de pós-processamento
         self.addCleanup(lambda: [x.liberar() for x in list(self.ger.sessoes.values())])
 
     def iniciar(self, fim_min=60):
@@ -225,8 +226,10 @@ class TestRotas(Base):
         r = self.cli.get("/api/controle/painel")
         self.assertEqual(r.status_code, 200)
         p = r.json()
-        self.assertEqual(set(p), {"estado", "titulo", "inicio", "fim_previsto", "segundos"})
+        self.assertEqual(set(p), {"estado", "titulo", "inicio", "fim_previsto", "segundos", "evento_id", "sessao", "job", "assumida", "minha"})
         self.assertEqual((p["estado"], p["titulo"], p["segundos"]), ("gravando", "Reunião de Teste", 75))
+        self.assertEqual((p["evento_id"], p["job"], p["assumida"]), ("ev-1", None, False))
+        self.assertEqual(p["sessao"], list(self.ger.sessoes)[0])
         self.assertNotIn("ana@exemplo.test", r.text)
 
     def test_parar_tela_exige_origin_local(self):
@@ -245,6 +248,182 @@ class TestRotas(Base):
         r = self.cli.post("/api/controle/iniciar", headers=self.h, json={"evento_id": "e", "titulo": "A", "fim_previsto": (self.agora + timedelta(hours=1)).isoformat()})
         self.assertEqual((r.status_code, r.json()["motivo"]), (409, "tela-gravando"))
         self.assertEqual(self.ctl.estado()["estado"], "ocioso")
+
+    # ---- a tela assume a gravação ------------------------------------------------------------------------
+    ORIGEM = {"Origin": "http://127.0.0.1:8765"}
+
+    def iniciar_http(self, evento="ev-1"):
+        r = self.cli.post("/api/controle/iniciar", headers=self.h, json={
+            "evento_id": evento, "titulo": "Reunião de Teste", "participantes": [{"nome": "Ana Teste", "email": "ana@exemplo.test"}],
+            "usuario": "Davi", "fim_previsto": (self.agora + timedelta(hours=1)).isoformat()})
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def test_assumir_primeira_aceita_segunda_409_sem_origin_403(self):
+        ini = self.iniciar_http()
+        sessao = ini["sessao"]
+        self.assertEqual(self.cli.post("/api/controle/assumir", json={"sessao": sessao, "pagina": "a"}).status_code, 403)   # sem Origin
+        r = self.cli.post("/api/controle/assumir", headers=self.ORIGEM, json={"sessao": sessao, "pagina": "a"})
+        self.assertEqual(r.status_code, 200, r.text)
+        j = r.json()
+        self.assertEqual((j["evento_id"], j["titulo"], j["participantes"], j["usuario"]), ("ev-1", "Reunião de Teste", ["Ana Teste"], "Davi"))
+        self.assertNotIn("ana@exemplo.test", r.text)
+        self.assertEqual(self.cli.post("/api/controle/assumir", headers=self.ORIGEM, json={"sessao": sessao, "pagina": "b"}).status_code, 409)
+        self.assertEqual(self.cli.post("/api/controle/assumir", headers=self.ORIGEM, json={"sessao": sessao, "pagina": "a"}).status_code, 200)   # recarregar
+        self.assertEqual(self.cli.post("/api/controle/assumir", headers=self.ORIGEM, json={"sessao": "outra", "pagina": "a"}).status_code, 404)
+        self.assertTrue(self.cli.get("/api/controle/painel").json()["assumida"])
+        self.rel.t += controle_mod.DONO_SUMIDO_S + 1   # a dona sumiu: outra página pode assumir
+        self.assertEqual(self.cli.post("/api/controle/assumir", headers=self.ORIGEM, json={"sessao": sessao, "pagina": "b"}).status_code, 200)
+
+    def test_parar_devolve_job(self):
+        self.iniciar_http()
+        r = self.cli.post("/api/controle/parar-tela", headers=self.ORIGEM)
+        self.assertEqual(r.status_code, 200)
+        job = r.json()["job"]
+        self.assertTrue(job.startswith("controle-") and job in self.jobs)
+        self.assertEqual(self.cli.post("/api/controle/parar-tela", headers=self.ORIGEM).json()["job"], job)   # repetido: o mesmo job
+
+    def test_painel_expoe_o_job_depois_da_parada_automatica(self):
+        self.iniciar_http()
+        self.ctl.parar("silencio")
+        p = self.cli.get("/api/controle/painel").json()
+        self.assertTrue(p["job"].startswith("controle-"))
+        self.assertIsNone(p["sessao"])
+
+    def test_servidor_nao_posprocessa_quando_assumido(self):
+        ini = self.iniciar_http()
+        self.cli.post("/api/controle/assumir", headers=self.ORIGEM, json={"sessao": ini["sessao"], "pagina": "a"})
+        with mock.patch.object(self.ctl, "nomear_e_resumir", side_effect=AssertionError("o servidor processou")):
+            self.cli.post("/api/controle/parar-tela", headers=self.ORIGEM)
+            time.sleep(0.6)
+            self.assertFalse((Path(ini["pasta_saida"]) / "concluido.flag").exists())
+            self.assertEqual(self.ctl.estado()["estado"], "processando")
+
+    def test_pagina_que_some_cai_na_reserva_do_servidor(self):
+        ini = self.iniciar_http()
+        self.cli.post("/api/controle/assumir", headers=self.ORIGEM, json={"sessao": ini["sessao"], "pagina": "a"})
+        self.cli.post("/api/controle/parar-tela", headers=self.ORIGEM)
+        time.sleep(0.4)
+        self.assertFalse((Path(ini["pasta_saida"]) / "concluido.flag").exists())
+        self.rel.t += controle_mod.PAGINA_SUMIU_S + 1
+        self.assertTrue(self.esperar_flag(ini["pasta_saida"]))
+        meta = json.loads((Path(ini["pasta_saida"]) / "meta.json").read_text(encoding="utf-8"))
+        self.assertEqual(meta["processado_por"], "servidor")
+
+    def test_consulta_do_painel_mantem_a_pagina_viva(self):
+        ini = self.iniciar_http()
+        self.cli.post("/api/controle/assumir", headers=self.ORIGEM, json={"sessao": ini["sessao"], "pagina": "a"})
+        self.cli.post("/api/controle/parar-tela", headers=self.ORIGEM)
+        for _ in range(3):
+            self.rel.t += 40
+            self.cli.get("/api/controle/painel?pagina=a")
+            time.sleep(0.3)
+        self.assertFalse((Path(ini["pasta_saida"]) / "concluido.flag").exists())   # 120 s no total, mas a página consultou sempre
+
+    def corpo_saida(self, **extra):
+        return {"evento_id": "ev-1", "pagina": "a", "titulo": "Título final da tela", "ia": True,
+                "falas": [dict(f) for f in FALAS], "locutores": {"Locutor 1": "Davi", "Locutor 2": "Ana Teste"},
+                "resumo": {"resumo": "Resumo da tela.", "topicos": ["Ponto A"], "decisoes": ["Decisão B"],
+                           "acoes": [{"tarefa": "Fazer C", "responsavel": "Ana Teste", "prazo": "sexta"}]}, **extra}
+
+    def test_saida_da_pagina_grava_a_pasta_com_flag_por_ultimo_e_recusa_a_segunda(self):
+        ini = self.iniciar_http()
+        self.cli.post("/api/controle/assumir", headers=self.ORIGEM, json={"sessao": ini["sessao"], "pagina": "a"})
+        self.assertEqual(self.cli.post("/api/controle/saida", json=self.corpo_saida()).status_code, 403)   # sem Origin
+        self.cli.post("/api/controle/parar-tela", headers=self.ORIGEM)
+        pasta = Path(ini["pasta_saida"])
+        ordem = []
+        real = saida._atomico
+
+        def espiao(destino, conteudo):
+            ordem.append(destino.name)
+            real(destino, conteudo)
+
+        with mock.patch.object(saida, "_atomico", espiao):
+            r = self.cli.post("/api/controle/saida", headers=self.ORIGEM, json=self.corpo_saida())
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(ordem[-1], "concluido.flag")
+        self.assertTrue((pasta / "concluido.flag").exists())
+        meta = json.loads((pasta / "meta.json").read_text(encoding="utf-8"))
+        self.assertEqual((meta["titulo"], meta["ia"], meta["processado_por"], meta["locutores"]["Locutor 2"]), ("Título final da tela", True, "tela", "Ana Teste"))
+        self.assertIn("] Ana Teste: Bom dia, tenho", (pasta / "transcricao.md").read_text(encoding="utf-8"))
+        self.assertEqual(json.loads((pasta / "falas.json").read_text(encoding="utf-8"))[1]["locutor"], "Locutor 2")   # rótulos originais
+        resumo = (pasta / "resumo.md").read_text(encoding="utf-8")
+        for trecho in ("## Resumo\nResumo da tela.", "- Ponto A", "- Decisão B", "- Fazer C (Ana Teste) (sexta)"):
+            self.assertIn(trecho, resumo)
+        # segunda saída do mesmo evento: recusada; a pasta não muda
+        antes = (pasta / "meta.json").read_text(encoding="utf-8")
+        r2 = self.cli.post("/api/controle/saida", headers=self.ORIGEM, json=self.corpo_saida(titulo="Outro"))
+        self.assertEqual((r2.status_code, r2.json()["motivo"]), (409, "saida-ja-gravada"))
+        self.assertEqual((pasta / "meta.json").read_text(encoding="utf-8"), antes)
+        self.assertTrue(self.ctl._eventos_gravados)
+        for _ in range(40):
+            if self.ctl.estado()["estado"] == "ocioso":
+                break
+            time.sleep(0.05)
+        self.assertEqual(self.ctl.estado()["estado"], "ocioso")
+
+    def test_saida_nao_vira_duas_com_a_reserva(self):
+        ini = self.iniciar_http()
+        self.cli.post("/api/controle/assumir", headers=self.ORIGEM, json={"sessao": ini["sessao"], "pagina": "a"})
+        self.cli.post("/api/controle/parar-tela", headers=self.ORIGEM)
+        self.rel.t += controle_mod.PAGINA_SUMIU_S + 1
+        self.assertTrue(self.esperar_flag(ini["pasta_saida"]))   # a reserva gravou
+        r = self.cli.post("/api/controle/saida", headers=self.ORIGEM, json=self.corpo_saida())
+        self.assertEqual((r.status_code, r.json()["motivo"]), (409, "saida-ja-gravada"))
+
+    def test_saida_sem_gravacao_ou_de_outra_pagina(self):
+        self.assertEqual(self.cli.post("/api/controle/saida", headers=self.ORIGEM, json=self.corpo_saida()).status_code, 404)
+        ini = self.iniciar_http()
+        self.cli.post("/api/controle/assumir", headers=self.ORIGEM, json={"sessao": ini["sessao"], "pagina": "a"})
+        self.cli.post("/api/controle/parar-tela", headers=self.ORIGEM)
+        self.assertEqual(self.cli.post("/api/controle/saida", headers=self.ORIGEM, json=self.corpo_saida(pagina="b")).status_code, 403)
+        self.assertEqual(self.cli.post("/api/controle/saida", headers=self.ORIGEM, json=self.corpo_saida(falas=[{"x": 1}])).status_code, 400)
+        self.assertFalse((Path(ini["pasta_saida"]) / "concluido.flag").exists())
+
+    def test_desistir_passa_para_a_reserva_do_servidor(self):
+        ini = self.iniciar_http()
+        self.cli.post("/api/controle/assumir", headers=self.ORIGEM, json={"sessao": ini["sessao"], "pagina": "a"})
+        self.cli.post("/api/controle/parar-tela", headers=self.ORIGEM)
+        r = self.cli.post("/api/controle/saida", headers=self.ORIGEM, json={"evento_id": "ev-1", "pagina": "a", "desistir": True})
+        self.assertEqual(r.json(), {"ok": True, "desistiu": True})
+        self.assertTrue(self.esperar_flag(ini["pasta_saida"]))
+        self.assertEqual(json.loads((Path(ini["pasta_saida"]) / "meta.json").read_text(encoding="utf-8"))["processado_por"], "servidor")
+
+    def test_pagina_aberta_no_estado(self):
+        self.assertIs(self.cli.get("/api/controle/estado", headers=self.h).json()["pagina_aberta"], False)
+        self.cli.get("/api/controle/painel")
+        self.assertIs(self.cli.get("/api/controle/estado", headers=self.h).json()["pagina_aberta"], True)
+        self.rel.t += controle_mod.PAGINA_ABERTA_S + 1
+        self.assertIs(self.cli.get("/api/controle/estado", headers=self.h).json()["pagina_aberta"], False)
+
+    def test_apos_saida_roda_uma_vez_com_a_pasta(self):
+        marca = self.raiz / "marca.txt"
+        script = self.raiz / "apos.py"
+        script.write_text("import os\nopen(os.environ['MARCA'], 'a').write(os.environ['AVEIA_SAIDA_PASTA'] + '\\n')\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"AVEIA_APOS_SAIDA": f'"{sys.executable}" "{script}"', "MARCA": str(marca)}):
+            ini = self.iniciar_http()
+            self.cli.post("/api/controle/assumir", headers=self.ORIGEM, json={"sessao": ini["sessao"], "pagina": "a"})
+            self.cli.post("/api/controle/parar-tela", headers=self.ORIGEM)
+            self.assertEqual(self.cli.post("/api/controle/saida", headers=self.ORIGEM, json=self.corpo_saida()).status_code, 200)
+            self.assertEqual(self.cli.post("/api/controle/saida", headers=self.ORIGEM, json=self.corpo_saida()).status_code, 409)
+            fim = time.time() + 15
+            while time.time() < fim and not marca.exists():
+                time.sleep(0.1)
+            time.sleep(1.0)   # uma segunda execução (indevida) teria tempo de aparecer
+        self.assertEqual(marca.read_text(encoding="utf-8").splitlines(), [ini["pasta_saida"]])
+
+    def test_apos_saida_que_falha_so_vai_para_o_log(self):
+        with mock.patch.dict(os.environ, {"AVEIA_APOS_SAIDA": "x"}), mock.patch("subprocess.Popen", side_effect=OSError("sem comando")):
+            ini = self.iniciar_http()
+            self.cli.post("/api/controle/parar-tela", headers=self.ORIGEM)
+            self.assertTrue(self.esperar_flag(ini["pasta_saida"]))   # a saída existe mesmo com o comando falhando
+
+    def test_delete_aovivo_nao_derruba_a_sessao_do_controle(self):
+        ini = self.iniciar_http()
+        with mock.patch.object(aplicacao, "aovivo_sessoes", self.ger):
+            self.assertEqual(self.cli.delete(f"/api/aovivo/{ini['sessao']}").json().get("controlada"), True)
+        self.assertIn(ini["sessao"], self.ger.sessoes)
 
     def test_fim_previsto_invalido_400(self):
         r = self.cli.post("/api/controle/iniciar", headers=self.h, json={"evento_id": "x", "fim_previsto": "amanhã"})

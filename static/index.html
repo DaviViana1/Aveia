@@ -244,18 +244,6 @@
     </div>
     </header>
 
-    <!-- Gravação automática (controle): barra fixa logo abaixo do cabeçalho, encostada nas bordas. Some quando ocioso. -->
-    <div id="auto-espaco" class="hidden h-10 -mt-2 shrink-0" aria-hidden="true"></div>
-    <div id="auto-barra" class="hidden fixed top-14 inset-x-0 z-[24] h-10 bg-white border-b border-mirtilo/10" role="status" aria-live="polite">
-        <div class="w-full max-w-[1264px] mx-auto h-full px-4 sm:px-8 flex items-center gap-3 min-w-0">
-            <svg id="auto-ico-rec" class="shrink-0 animate-pulse text-framboesa" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="currentColor"/></svg>
-            <span id="auto-ico-proc" class="hidden spin shrink-0 text-amendoa" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg></span>
-            <span id="auto-titulo" class="min-w-0 flex-1 truncate text-sm font-medium text-mirtilo"></span>
-            <span id="auto-tempo" class="shrink-0 font-mono text-xs text-mirtilo/60"></span>
-            <button id="auto-parar" type="button" onclick="pararAutomatica()" class="shrink-0 px-3 py-1 rounded-full bg-framboesa text-aveia text-xs font-medium hover:brightness-110 active:scale-95 transition-all">Parar</button>
-        </div>
-    </div>
-
     <!-- Gravações que não terminaram de processar (o áudio fica guardado no navegador) -->
     <div id="pendentes" class="hidden w-full max-w-[1200px] mx-auto space-y-2 mb-2"></div>
 
@@ -1729,7 +1717,7 @@
         const decorrido = () => (acumulado + (estado === 'gravando' ? Date.now() - retomadoEm : 0)) / 1000;
 
         function mostrarDock() {
-            $('pause-btn').classList.toggle('hidden', !emGravacao());
+            $('pause-btn').classList.toggle('hidden', !emGravacao() || !!gravAuto);
             $('pause-icon').className = 'ph-fill text-sm ' + (estado === 'pausado' ? 'ph-play' : 'ph-pause');
             $('pause-btn').title = estado === 'pausado' ? 'Continuar' : 'Pausar';
             $('waveform').classList.toggle('live', estado === 'gravando');
@@ -1864,6 +1852,7 @@
 
         function alternarPausa() {
             $('pause-btn').blur();
+            if (gravAuto) return;   // a captura é do servidor: não há pausa
             if (estado === 'gravando') { recorder.pause(); acumulado += Date.now() - retomadoEm; estado = 'pausado'; }
             else if (estado === 'pausado') { recorder.resume(); retomadoEm = Date.now(); estado = 'gravando'; }
             else return;
@@ -1871,6 +1860,7 @@
         }
 
         function pararGravacao() {
+            if (gravAuto) return pararAuto();   // gravação automática: o áudio é do servidor
             enviarDestaque();   // rascunho ainda não enviado vira destaque, no instante em que começou a ser escrito
             durGravada = decorrido();
             processandoId = state.atual;
@@ -1911,7 +1901,7 @@
         }
 
         function apagarAoVivo(av) {   // melhor esforço: libera a memória e o arquivo parcial no servidor
-            if (av && av.id) { const id = av.id; av.id = null; fetch('/api/aovivo/' + id, { method: 'DELETE', keepalive: true }).catch(() => {}); }
+            if (av && av.id && !av.auto) { const id = av.id; av.id = null; fetch('/api/aovivo/' + id, { method: 'DELETE', keepalive: true }).catch(() => {}); }
         }
         function falharAoVivo(av, e) {   // desliga o ao vivo desta gravação; o caminho clássico cobre tudo
             if (!av || av.falhou) return;
@@ -2059,8 +2049,9 @@
         }
 
         // `av`: sessão ao vivo desta gravação (se houver). Com ela só falta a cauda; qualquer falha cai no upload do Blob.
-        async function enviar(arquivo, nomeArquivo, duracao, notaId, pendenteId, av, canais) {
+        async function enviar(arquivo, nomeArquivo, duracao, notaId, pendenteId, av, canais, opc = {}) {
             estado = 'processando';
+            let posAuto = null;   // gravação automática: o que roda depois que a tela volta ao estado ocioso (IA e saída)
             const alvo = state.notes.find(n => n.id === notaId) || nota();
             processandoId = alvo.id;
             if (alvo.id === state.atual) renderTranscricao();
@@ -2070,9 +2061,9 @@
             $('rec-btn').classList.add('opacity-70');
             $('pause-btn').classList.add('hidden');
             try {
-                if (!pendenteId) { try { await BD.guardar({ id: pid, arquivo, nomeArquivo, duracao, notaId: alvo.id, em: Date.now(), ...(canais ? { canais } : {}) }); } catch (e) { console.warn('Não foi possível guardar o áudio localmente', e); } }
+                if (!pendenteId && !opc.job) { try { await BD.guardar({ id: pid, arquivo, nomeArquivo, duracao, notaId: alvo.id, em: Date.now(), ...(canais ? { canais } : {}) }); } catch (e) { console.warn('Não foi possível guardar o áudio localmente', e); } }
                 if (nota()) indicadorAoVivo(falasAoVivo(nota()));
-                let job = av ? await finalizarAoVivo(av, arquivo, duracao) : null;
+                let job = opc.job || (av ? await finalizarAoVivo(av, arquivo, duracao) : null);   // automática: o servidor já finalizou
                 if (!job) job = await enviarClassico(arquivo, nomeArquivo, canais);
                 let r, falhas = 0;
                 do {
@@ -2084,6 +2075,7 @@
                     if (r.parciais && r.parciais.length) definirTextoAoVivo(alvo.id, r.parciais);   // texto provisório enquanto o resto roda
                 } while (r.status === 'processando');
                 if (r.status === 'erro') throw new Error(r.erro);
+                if (opc.auto && r.duracao_s) duracao = r.duracao_s;
 
                 textoAoVivo = { notaId: null, falas: [] };   // chegou o texto final: o provisório sai (renderizar() abaixo redesenha)
                 const desloc = alvo.duracao || 0;
@@ -2108,6 +2100,7 @@
                 if (r.motor) { alvo.motor = 'local'; salvar(); }
                 aviso(r.falas.length ? 'Transcrição pronta' : 'Nenhuma fala detectada', !r.falas.length);
                 if (r.avisos && r.avisos.length) setTimeout(() => { aviso(r.avisos.join(' '), true); $('toast').title = r.avisos.join('\n'); }, 2000);
+                if (opc.auto) nomearUsuarioAuto(alvo, r);   // o canal do microfone é quem grava
                 // Gravação em dois canais: o microfone é sempre o Locutor 1. Só avisa (uma vez); renomear fica com o usuário.
                 if (r.locutor_local && r.falas.length && !state.cfg.avisoLocutorLocal && !(alvo.nomes[r.locutor_local] || '').trim()) {
                     state.cfg.avisoLocutorLocal = true; salvar();
@@ -2117,16 +2110,21 @@
                 try { await aplicarIdentificacoes(alvo, desloc); } catch (e) { console.warn('Identificação pelo chat falhou', e); }
                 // IA automática: só com o interruptor ligado (padrão desligado) e sem o teto do mês estourado. Desligada, nada sai; os botões manuais seguem valendo.
                 const iaAutomatica = iaPode();   // IA ligada, com chave e abaixo do teto do mês
-                if (r.falas.length && iaAutomatica) gerarTitulo(alvo);   // título automático (só se ainda for o padrão), sem bloquear
-                if (r.falas.length && iaAutomatica) resolverDestaquesIA(alvo, desloc);   // a IA escolhe o trecho de cada destaque
+                const tarefasIA = [];
+                if (r.falas.length && iaAutomatica) tarefasIA.push(gerarTitulo(alvo));   // título automático (só se ainda for o padrão), sem bloquear
+                if (r.falas.length && iaAutomatica) tarefasIA.push(resolverDestaquesIA(alvo, desloc));   // a IA escolhe o trecho de cada destaque
                 // Nomes dos locutores primeiro (uma chamada curta, não bloqueia a tela); o resumo automático sai depois, já com eles.
-                if (r.falas.length && iaAutomatica) identificarLocutores(alvo).finally(() => gerarResumo(alvo, true));
+                if (r.falas.length && iaAutomatica) tarefasIA.push(identificarLocutores(alvo).finally(() => gerarResumo(alvo, true)));
+                if (opc.auto) posAuto = async () => { await Promise.allSettled(tarefasIA); await enviarSaidaAuto(alvo, opc.auto); };
             } catch (e) {
-                aviso('Falha ao transcrever. A gravação foi guardada: use "Tentar de novo".', true); console.error(e);
+                if (opc.auto) { aviso('Falha ao transcrever a reunião automática. O servidor salva a versão dele.', true); desistirAuto(opc.auto); }
+                else aviso('Falha ao transcrever. A gravação foi guardada: use "Tentar de novo".', true);
+                console.error(e);
             } finally {
-                estado = 'ocioso'; processandoId = null; $('rec-btn').title = ''; limparTextoAoVivo(); mostrarDock(); mostrarPendentes();
+                estado = 'ocioso'; processandoId = null; $('rec-btn').title = ''; limparTextoAoVivo(); if (opc.auto && gravAuto === opc.auto) gravAuto = null; mostrarDock(); mostrarPendentes();
                 if (nota()) renderTranscricao();   // tira o aviso de "transcrevendo"; o texto final já foi desenhado
             }
+            if (posAuto) { try { await posAuto(); } catch (e) { console.error(e); desistirAuto(opc.auto); } }
         }
 
         // ---------- Destaque: a IA escolhe o trecho ----------
@@ -2671,33 +2669,133 @@
         // Gravação interrompida (aba fechada, crash, bateria): os pedaços guardados viram "pendente" para tentar de novo.
         Mic.recuperar(reg => BD.guardar(reg)).then(n => { if (n) { mostrarPendentes(); aviso('Recuperei uma gravação interrompida', false); } });
 
-        // ---------- Gravação automática (controle): só mostra; quem grava é o servidor ----------
-        let autoEstado = 'ocioso', autoBase = 0, autoDesde = 0;
-        function fmtTempo(t) { const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60, d = n => String(n).padStart(2, '0'); return h ? `${h}:${d(m)}:${d(s)}` : `${d(m)}:${d(s)}`; }
-        function pintarAuto() {
-            const ativo = autoEstado === 'gravando' || autoEstado === 'processando', grav = autoEstado === 'gravando';
-            $('auto-barra').classList.toggle('hidden', !ativo); $('auto-espaco').classList.toggle('hidden', !ativo);
-            $('auto-ico-rec').classList.toggle('hidden', !grav); $('auto-ico-proc').classList.toggle('hidden', grav);
-            $('auto-parar').classList.toggle('hidden', !grav);
-            if (grav) $('auto-tempo').textContent = fmtTempo(autoBase + Math.floor((Date.now() - autoDesde) / 1000));
-            else $('auto-tempo').textContent = '';
-            const rec = $('rec-btn'); if (rec) { rec.disabled = grav; rec.classList.toggle('opacity-40', grav); rec.classList.toggle('pointer-events-none', grav); }
+        // ---------- Gravação automática (controle): a tela conduz a nota; só o áudio vem do servidor ----------
+        // Quando o painel mostra uma gravação nova, esta página a "assume" (só uma assume), cria a nota da reunião e entra no mesmo
+        // estado de uma gravação manual: tempo, texto ao vivo (falas da sessão do servidor), chat e destaques. Parar (aqui ou no
+        // servidor) roda o pós-processamento normal e, no fim, envia o resultado final ao servidor, que grava a pasta `saida/`.
+        // Sem esta página (ou se ela sumir) o servidor processa sozinho.
+        const PAGINA_ID = (() => {
+            try { let v = sessionStorage.getItem('aveia-pagina'); if (!v) { v = Math.random().toString(36).slice(2) + Date.now().toString(36); sessionStorage.setItem('aveia-pagina', v); } return v; }
+            catch { return 'p' + Math.random().toString(36).slice(2); }
+        })();
+        const LS_AUTO = 'aveia-auto-vinculos';   // evento_id -> id da nota (sobrevive a recarregar a página)
+        const vinculos = () => { try { return JSON.parse(localStorage.getItem(LS_AUTO)) || {}; } catch { return {}; } };
+        function vincularAuto(ev, notaId) {
+            try { const v = vinculos(); delete v[ev]; v[ev] = notaId; Object.keys(v).slice(0, -30).forEach(k => delete v[k]); localStorage.setItem(LS_AUTO, JSON.stringify(v)); } catch {}
         }
-        async function consultarAuto() {
+        let gravAuto = null;                  // { evento, sessao, notaId, av, titulo, usuario, parando }
+        let autoTentando = false, autoMostrada = null;
+        const autoFeitos = new Set();         // eventos cujo pós-processamento esta página já conduziu
+
+        function notaDoEvento(ev) { const id = vinculos()[ev]; return id ? state.notes.find(n => n.id === id) : null; }
+
+        async function assumirAuto(p) {
+            if (estado !== 'ocioso' || autoTentando) return;   // há outra gravação ou processamento aqui: tenta no próximo ciclo
+            autoTentando = true;
             try {
-                const r = await fetch('/api/controle/painel', { cache: 'no-store' }); if (!r.ok) return;
-                const p = await r.json();
-                autoEstado = p.estado; autoBase = p.segundos || 0; autoDesde = Date.now();
-                $('auto-titulo').textContent = p.estado === 'processando' ? 'Transcrevendo ' + (p.titulo || '') : (p.titulo || 'Reunião');
-                pintarAuto();
-            } catch (e) { /* servidor fora: mantém o que está na tela */ }
+                const r = await fetch('/api/controle/assumir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessao: p.sessao, pagina: PAGINA_ID }) });
+                if (r.status === 409) {   // outra página conduz: aqui só mostra a nota, se esta página a conhece
+                    const n = notaDoEvento(p.evento_id || p.sessao);
+                    if (n && autoMostrada !== p.sessao) { autoMostrada = p.sessao; state.atual = n.id; renderizar(); }
+                    return;
+                }
+                if (!r.ok) return;
+                const j = await r.json();
+                if (estado !== 'ocioso' || gravAuto) return;
+                const ev = j.evento_id || p.sessao;
+                let n = notaDoEvento(ev);
+                if (!n) {   // nota nova, como o botão "nova nota"; os participantes da agenda viram pistas de nomes
+                    n = criarNota();
+                    n.titulo = j.titulo || 'Reunião';
+                    const nomes = (j.participantes || []).filter(Boolean);
+                    n.texto = nomes.length ? 'Participantes: ' + nomes.join(', ') : '';
+                    n.auto = { evento: ev, usuario: j.usuario || '', participantes: nomes };
+                    vincularAuto(ev, n.id);
+                }
+                state.atual = n.id; salvar();
+                const av = { id: p.sessao, notaId: n.id, seq: 0, bytes: 0, pedacos: 0, falhou: false, semTexto: false, desde: 0, timer: null, consultando: false, cadeia: Promise.resolve(), auto: true };
+                gravAuto = { evento: ev, sessao: p.sessao, notaId: n.id, av, titulo: n.titulo, usuario: (n.auto && n.auto.usuario) || '', parando: false };
+                canaisGravacao = null; durGravada = 0;
+                acumulado = (j.segundos || 0) * 1000; retomadoEm = Date.now(); estado = 'gravando';
+                textoAoVivo = { notaId: null, falas: [] };
+                sessaoAoVivo = av; av.timer = setInterval(() => consultarAoVivo(av), 2000); consultarAoVivo(av);
+                clearInterval(timerRec);
+                timerRec = setInterval(() => { if (emGravacao()) $('rec-label').textContent = fmt(decorrido()); }, 250);
+                renderizar(); mostrarCanais('mic + computador'); mostrarDock(); abrirChat();
+                aviso('Gravando: ' + n.titulo);
+            } catch (e) { console.warn('Não consegui assumir a gravação automática', e); }
+            finally { autoTentando = false; }
         }
-        async function pararAutomatica() {
-            $('auto-parar').disabled = true;
-            try { await fetch('/api/controle/parar-tela', { method: 'POST' }); } catch (e) { /* o próximo ciclo mostra o estado real */ }
-            $('auto-parar').disabled = false; consultarAuto();
+
+        async function consultarAuto() {
+            let p;
+            try {
+                const r = await fetch('/api/controle/painel?pagina=' + encodeURIComponent(PAGINA_ID), { cache: 'no-store' }); if (!r.ok) return;
+                p = await r.json();
+            } catch (e) { return; /* servidor fora: mantém o que está na tela */ }
+            if (gravAuto) {   // o servidor parou sozinho (silêncio ou limite): vale como se a pessoa tivesse parado
+                if (!gravAuto.parando && gravAuto.av && (p.estado !== 'gravando' || (p.evento_id || p.sessao) !== gravAuto.evento)) pararAuto(p.job || null, true);
+                return;
+            }
+            if (p.estado === 'gravando' && p.sessao) assumirAuto(p);
+            else if (p.estado === 'processando' && p.minha && p.job && estado === 'ocioso' && !autoFeitos.has(p.evento_id)) {   // a página recarregou no meio do processamento
+                const n = notaDoEvento(p.evento_id);
+                if (!n) return;
+                gravAuto = { evento: p.evento_id, sessao: null, notaId: n.id, av: null, titulo: n.titulo, usuario: (n.auto && n.auto.usuario) || '', parando: false };
+                state.atual = n.id; renderizar();
+                pararAuto(p.job, true);
+            }
         }
-        consultarAuto(); setInterval(consultarAuto, 3000); setInterval(() => { if (autoEstado === 'gravando') pintarAuto(); }, 1000);
+
+        // `doServidor`: a parada partiu do servidor (já há job), então não chama parar-tela.
+        async function pararAuto(job, doServidor) {
+            const ga = gravAuto;
+            if (!ga || ga.parando) return;
+            ga.parando = true;
+            if (ga.av) clearInterval(ga.av.timer);
+            if (emGravacao()) enviarDestaque();   // rascunho ainda não enviado vira destaque
+            durGravada = decorrido();
+            processandoId = ga.notaId; estado = 'processando';
+            clearInterval(timerRec); mostrarCanais(''); mostrarDock();
+            try {
+                if (!job && !doServidor) {
+                    try { const r = await fetch('/api/controle/parar-tela', { method: 'POST' }); job = (await r.json()).job || null; } catch (e) { console.warn(e); }
+                }
+                if (!job) { aviso('Não consegui parar a gravação automática', true); estado = 'ocioso'; processandoId = null; limparTextoAoVivo(); mostrarDock(); return; }
+                autoFeitos.add(ga.evento);
+                await enviar(null, null, durGravada, ga.notaId, null, null, null, { job, auto: ga });
+            } finally {
+                gravAuto = null;
+                if (sessaoAoVivo === (ga.av || null) && ga.av) sessaoAoVivo = null;
+                mostrarDock();
+            }
+        }
+
+        // O canal do microfone (Locutor 1) é o usuário que grava; vale como nome definido por ele (a IA não o troca).
+        function nomearUsuarioAuto(alvo, r) {
+            const usuario = (alvo.auto && alvo.auto.usuario || '').trim(), rot = r.locutor_local || 'Locutor 1';
+            if (usuario && rotulos(alvo).includes(rot) && !(alvo.nomes[rot] || '').trim()) { alvo.nomes[rot] = usuario; salvar(); }
+        }
+
+        async function postSaidaAuto(corpo) {
+            try {
+                return await fetch('/api/controle/saida', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ evento_id: corpo.evento_id, pagina: PAGINA_ID, ...corpo }) });
+            } catch (e) { console.warn('Saída automática não enviada', e); return null; }
+        }
+        function desistirAuto(ga) { if (ga) postSaidaAuto({ evento_id: ga.evento, desistir: true }); }   // o servidor processa sozinho
+        async function enviarSaidaAuto(alvo, ga) {
+            const resumo = Nomes.limparResumo(alvo.resumo);
+            const r = await postSaidaAuto({
+                evento_id: ga.evento, titulo: alvo.titulo.trim() || ga.titulo, ia: !!resumo,
+                falas: alvo.falas.map(f => ({ inicio: f.inicio, fim: f.fim, locutor: f.locutor, texto: f.texto })),
+                locutores: Object.fromEntries(rotulos(alvo).map(x => [x, (alvo.nomes[x] || '').trim() || null])),
+                resumo: resumo || null,
+            });
+            if (r && r.ok) aviso('Reunião salva');
+            else if (!r || r.status !== 409) { aviso('A saída da reunião não foi enviada. O servidor salva a versão dele.', true); desistirAuto(ga); }
+        }
+
+        consultarAuto(); setInterval(consultarAuto, 3000);
     </script>
 </body>
 </html>

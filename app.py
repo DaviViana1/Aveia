@@ -265,19 +265,46 @@ def api_controle_estado(request: Request):
 
 
 @app.get("/api/controle/painel")
-def api_controle_painel():
-    """Só leitura, sem token: o que a tela mostra da gravação automática (o `_so_local` já limita ao computador local)."""
-    return controle.painel()
+def api_controle_painel(pagina: str = ""):
+    """Só leitura, sem token: o que a tela mostra da gravação automática (o `_so_local` já limita ao computador local).
+    Cada consulta vale como "há página aberta"; `pagina` (id da aba) renova o sinal da página dona da gravação."""
+    return controle.painel(pagina)
 
 
-@app.post("/api/controle/parar-tela")
-async def api_controle_parar_tela(request: Request):
-    """Botão Parar da tela, sem token. Exige Origin local (o `_so_local` deixa passar POST sem Origin; aqui não)."""
+def _sem_origem_local(request: Request) -> JSONResponse | None:
+    """Rotas da tela sem token: exigem Origin local (o `_so_local` deixa passar POST sem Origin; aqui não)."""
     origem = (request.headers.get("origin") or "").strip().lower()
     host = (request.headers.get("host") or "").strip().lower()
     if not origem or origem.split("://", 1)[-1] != host:
         return JSONResponse({"ok": False, "motivo": "origem"}, status_code=403)
+    return None
+
+
+@app.post("/api/controle/parar-tela")
+async def api_controle_parar_tela(request: Request):
+    """Botão Parar da tela, sem token. Devolve o `job` da finalização."""
+    if (negado := _sem_origem_local(request)) is not None:
+        return negado
     return await run_in_threadpool(controle.parar, "tela")
+
+
+@app.post("/api/controle/assumir")
+async def api_controle_assumir(request: Request):
+    """{sessao, pagina}: a página passa a conduzir a gravação automática. Uma só página por vez (outra recebe 409)."""
+    if (negado := _sem_origem_local(request)) is not None:
+        return negado
+    c = await _campos(request)
+    codigo, corpo = await run_in_threadpool(controle.assumir, str(c.get("sessao") or ""), str(c.get("pagina") or ""))
+    return JSONResponse(corpo, status_code=codigo)
+
+
+@app.post("/api/controle/saida")
+async def api_controle_saida(request: Request):
+    """Resultado final da página dona (título, falas, nomes, resumo): o servidor grava `saida/<pasta>` uma vez só."""
+    if (negado := _sem_origem_local(request)) is not None:
+        return negado
+    codigo, corpo = await run_in_threadpool(controle.saida, await _campos(request))
+    return JSONResponse(corpo, status_code=codigo)
 
 
 @app.post("/api/controle/iniciar")
@@ -392,6 +419,8 @@ def api_aovivo_apagar(sessao: str):
     s = aovivo_sessoes.obter(sessao)
     if s is None:
         return {"ok": True}
+    if s.pcm_direto:   # captura do servidor (gravação por controle): só o controle encerra
+        return {"ok": True, "controlada": True}
     if s.finalizando:
         return {"ok": True, "finalizando": True}
     aovivo_sessoes.remover(sessao)

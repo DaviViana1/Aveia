@@ -233,7 +233,7 @@ class Estrutura(unittest.TestCase):
         self.assertIn("cobre: { inicio: ancora, fim: t }", HTML)
 
     def test_ia_dos_destaques_segue_o_interruptor_unico(self):
-        self.assertIn("if (r.falas.length && iaAutomatica) resolverDestaquesIA(alvo, desloc);", HTML)
+        self.assertIn("if (r.falas.length && iaAutomatica) tarefasIA.push(resolverDestaquesIA(alvo, desloc));", HTML)
         self.assertIn("const iaAutomatica = iaPode();", HTML, "sem 'IA automática' separada: vale o interruptor único")
         self.assertIn("/api/destaque-escopo", HTML)
         self.assertIn("valem as falas dos 10 s anteriores", HTML, "avisa quando cai para a regra")
